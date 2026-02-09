@@ -1,0 +1,50 @@
+<!-- public/chat.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ShadowTeams • Chat</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="bg-noise"></div>
+
+  <main class="container chat">
+    <header class="chat-header">
+      <div>
+        <div class="chat-title">
+          <span class="pill" id="teamCodePill">TEAM</span>
+          <span id="teamName">ShadowTeams</span>
+        </div>
+        <div class="chat-sub">
+          <span id="onlineCount">0</span> online •
+          <span class="muted">You are</span> <span class="mono" id="meUser">...</span>
+        </div>
+      </div>
+      <div class="chat-actions">
+        <label class="toggle">
+          <input type="checkbox" id="profanityToggle" />
+          <span>Local filter</span>
+        </label>
+        <button id="leaveBtn" class="btn danger">Leave Team</button>
+      </div>
+    </header>
+
+    <section class="card chat-card">
+      <div id="messages" class="messages"></div>
+      <div id="typing" class="typing muted"></div>
+
+      <div class="composer">
+        <textarea id="input" class="input composer-input" rows="2" placeholder="Type a message…" maxlength="500"></textarea>
+        <button id="sendBtn" class="btn primary">Send</button>
+      </div>
+
+      <div id="toast" class="toast hidden"></div>
+    </section>
+  </main>
+
+  <script src="/js/util.js"></script>
+  <script src="/js/chat.js"></script>
+</body>
+</html>

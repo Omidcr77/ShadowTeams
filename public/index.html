@@ -1,0 +1,67 @@
+<!-- public/index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ShadowTeams</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="bg-noise"></div>
+
+  <main class="container">
+    <header class="header">
+      <div class="logo">
+        <span class="logo-dot"></span>
+        <h1>ShadowTeams</h1>
+      </div>
+      <p class="tagline">Anonymous team chat. No email. No phone. No IP storage.</p>
+    </header>
+
+    <section class="card">
+      <label class="label" for="username">Username (3–20, letters/numbers/_)</label>
+      <input id="username" class="input" placeholder="e.g., ghost_17" autocomplete="off" maxlength="20" />
+
+      <div class="row">
+        <button id="btnRandom" class="btn primary">Join Random Team</button>
+      </div>
+
+      <hr class="sep" />
+
+      <div class="grid">
+        <div class="panel">
+          <h2>Create Team</h2>
+          <label class="label" for="teamName">Team name</label>
+          <input id="teamName" class="input" placeholder="e.g., NightOps" maxlength="40" />
+          <label class="label" for="teamDesc">Description (optional)</label>
+          <textarea id="teamDesc" class="input" rows="3" placeholder="Short description (optional)" maxlength="200"></textarea>
+          <button id="btnCreate" class="btn">Create Team</button>
+        </div>
+
+        <div class="panel">
+          <h2>Join by Code</h2>
+          <label class="label" for="teamCode">Team code</label>
+          <input id="teamCode" class="input" placeholder="e.g., AbC123xY" maxlength="10" />
+          <button id="btnJoin" class="btn">Join Team</button>
+        </div>
+      </div>
+
+      <div class="tiny">
+        Tip: Your session identity is stored locally in your browser (localStorage). Clearing site data resets it.
+      </div>
+
+      <div id="toast" class="toast hidden"></div>
+    </section>
+
+    <footer class="footer">
+      <a href="/admin.html" class="link">Admin Reports</a>
+      <span class="muted">•</span>
+      <span class="muted">Privacy vibe mode: ON</span>
+    </footer>
+  </main>
+
+  <script src="/js/util.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

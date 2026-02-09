@@ -1,0 +1,28 @@
+# deploy/shadowteams.service
+[Unit]
+Description=ShadowTeams anonymous chat (Node.js)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/shadowteams
+EnvironmentFile=/var/www/shadowteams/.env
+ExecStart=/usr/bin/node /var/www/shadowteams/server.js
+Restart=on-failure
+RestartSec=2
+User=www-data
+Group=www-data
+
+# Privacy: avoid noisy logs
+StandardOutput=journal
+StandardError=journal
+
+# Hardening (safe defaults)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/www/shadowteams
+
+[Install]
+WantedBy=multi-user.target

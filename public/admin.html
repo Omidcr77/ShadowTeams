@@ -1,0 +1,45 @@
+<!-- public/admin.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ShadowTeams • Admin</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="bg-noise"></div>
+
+  <main class="container">
+    <header class="header">
+      <div class="logo">
+        <span class="logo-dot"></span>
+        <h1>ShadowTeams</h1>
+      </div>
+      <p class="tagline">Admin reports (token protected).</p>
+    </header>
+
+    <section class="card">
+      <label class="label" for="token">ADMIN_TOKEN</label>
+      <input id="token" class="input" placeholder="Paste admin token" autocomplete="off" />
+      <div class="row">
+        <button id="loadBtn" class="btn primary">Load Reports</button>
+        <button id="clearBtn" class="btn">Clear Token</button>
+        <a class="btn" href="/index.html">Back</a>
+      </div>
+
+      <div class="tiny">
+        This page is protected by <span class="mono">Authorization: Bearer ADMIN_TOKEN</span>. Keep it secret.
+      </div>
+
+      <hr class="sep" />
+
+      <div id="reports" class="reports"></div>
+      <div id="toast" class="toast hidden"></div>
+    </section>
+  </main>
+
+  <script src="/js/util.js"></script>
+  <script src="/js/admin.js"></script>
+</body>
+</html>
