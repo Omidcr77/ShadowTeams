@@ -1,4 +1,3 @@
-// public/js/app.js
 (() => {
   const { getSessionId, toast, qs, validUsername } = window.ShadowUtil;
 
@@ -7,15 +6,17 @@
   const teamDescEl = qs('#teamDesc');
   const teamCodeEl = qs('#teamCode');
 
+  const userHelp = qs('#usernameHelp');
+  const teamNameHelp = qs('#teamNameHelp');
+  const teamCodeHelp = qs('#teamCodeHelp');
+
   const btnRandom = qs('#btnRandom');
   const btnCreate = qs('#btnCreate');
   const btnJoin = qs('#btnJoin');
   const toastEl = qs('#toast');
 
-  // Ensure sessionId exists (privacy: local only)
   getSessionId();
 
-  // Restore cached username
   const cachedUser = localStorage.getItem('shadowteams_username');
   if (cachedUser) usernameEl.value = cachedUser;
 
@@ -31,15 +32,67 @@
     window.location.href = `/chat.html?code=${encodeURIComponent(teamCode)}`;
   }
 
-  function requireUser() {
+  function markInput(el, ok) {
+    if (!el) return;
+    el.classList.toggle('ok', !!ok);
+    el.classList.toggle('bad', !ok);
+  }
+
+  function validateUser(show = false) {
     const u = usernameEl.value.trim();
-    if (!validUsername(u)) {
-      toast(toastEl, 'Invalid username: 3–20 chars, letters/numbers/_');
+    const ok = validUsername(u);
+    if (show) {
+      markInput(usernameEl, ok || !u);
+      userHelp.textContent = ok || !u
+        ? '3–20 chars. Letters, numbers, underscore.'
+        : 'Invalid username format.';
+      userHelp.classList.toggle('error-text', !ok && !!u);
+    }
+    return ok;
+  }
+
+  function validateTeamName(show = false) {
+    const n = teamNameEl.value.trim();
+    const ok = n.length >= 2 && n.length <= 40;
+    if (show) {
+      markInput(teamNameEl, ok || !n);
+      teamNameHelp.textContent = ok || !n ? '2–40 chars.' : 'Team name must be 2–40 characters.';
+      teamNameHelp.classList.toggle('error-text', !ok && !!n);
+    }
+    return ok;
+  }
+
+  function validateTeamCode(show = false) {
+    const c = teamCodeEl.value.trim();
+    const ok = /^[A-Za-z0-9]{6,10}$/.test(c);
+    if (show) {
+      markInput(teamCodeEl, ok || !c);
+      teamCodeHelp.textContent = ok || !c ? '6–10 alphanumeric characters.' : 'Code must be 6–10 letters/numbers.';
+      teamCodeHelp.classList.toggle('error-text', !ok && !!c);
+    }
+    return ok;
+  }
+
+  function requireUser() {
+    const ok = validateUser(true);
+    if (!ok) {
+      toast(toastEl, 'Please enter a valid username');
       usernameEl.focus();
       return null;
     }
-    return u;
+    return usernameEl.value.trim();
   }
+
+  function mapError(msg, fallback) {
+    const m = String(msg || '').toLowerCase();
+    if (m.includes('readonly') || m.includes('database')) return 'Server storage is read-only right now. Ask admin to fix DB permissions.';
+    if (m.includes('capacity') || m.includes('full')) return 'That team is full. Try another one.';
+    return msg || fallback;
+  }
+
+  usernameEl.addEventListener('input', () => validateUser(true));
+  teamNameEl.addEventListener('input', () => validateTeamName(true));
+  teamCodeEl.addEventListener('input', () => validateTeamCode(true));
 
   btnRandom.addEventListener('click', async () => {
     const username = requireUser();
@@ -56,7 +109,7 @@
       if (!r.ok) throw new Error(j.error || 'Failed');
       goChat(j.team.code);
     } catch (e) {
-      toast(toastEl, e.message || 'Failed to join random team');
+      toast(toastEl, mapError(e.message, 'Failed to join random team'));
     } finally {
       btnRandom.disabled = false;
     }
@@ -65,14 +118,14 @@
   btnCreate.addEventListener('click', async () => {
     const username = requireUser();
     if (!username) return;
-
-    const teamName = (teamNameEl.value || '').trim();
-    const description = (teamDescEl.value || '').trim();
-    if (teamName.length < 2 || teamName.length > 40) {
-      toast(toastEl, 'Team name must be 2–40 chars');
+    if (!validateTeamName(true)) {
+      toast(toastEl, 'Please enter a valid team name');
       teamNameEl.focus();
       return;
     }
+
+    const teamName = teamNameEl.value.trim();
+    const description = (teamDescEl.value || '').trim();
 
     btnCreate.disabled = true;
     try {
@@ -85,7 +138,7 @@
       if (!r.ok) throw new Error(j.error || 'Failed');
       goChat(j.teamCode);
     } catch (e) {
-      toast(toastEl, e.message || 'Failed to create team');
+      toast(toastEl, mapError(e.message, 'Failed to create team'));
     } finally {
       btnCreate.disabled = false;
     }
@@ -94,13 +147,13 @@
   btnJoin.addEventListener('click', async () => {
     const username = requireUser();
     if (!username) return;
-
-    const teamCode = (teamCodeEl.value || '').trim();
-    if (!/^[A-Za-z0-9]{6,10}$/.test(teamCode)) {
-      toast(toastEl, 'Invalid code (6–10 alphanumeric)');
+    if (!validateTeamCode(true)) {
+      toast(toastEl, 'Invalid team code format');
       teamCodeEl.focus();
       return;
     }
+
+    const teamCode = teamCodeEl.value.trim();
 
     btnJoin.disabled = true;
     try {
@@ -113,7 +166,7 @@
       if (!r.ok) throw new Error(j.error || 'Failed');
       goChat(j.team.code);
     } catch (e) {
-      toast(toastEl, e.message || 'Failed to join team');
+      toast(toastEl, mapError(e.message, 'Failed to join team'));
     } finally {
       btnJoin.disabled = false;
     }

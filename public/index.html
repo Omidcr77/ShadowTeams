@@ -1,4 +1,3 @@
-<!-- public/index.html -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -11,17 +10,23 @@
   <div class="bg-noise"></div>
 
   <main class="container">
-    <header class="header">
+    <header class="header hero">
       <div class="logo">
         <span class="logo-dot"></span>
         <h1>ShadowTeams</h1>
       </div>
-      <p class="tagline">Anonymous team chat. No email. No phone. No IP storage.</p>
+      <p class="tagline">Private-by-design team chat. No email. No phone number. No IP storage.</p>
+      <div class="hero-badges">
+        <span class="pill">Anonymous sessions</span>
+        <span class="pill">Fast team codes</span>
+        <span class="pill">Minimal data footprint</span>
+      </div>
     </header>
 
     <section class="card">
-      <label class="label" for="username">Username (3–20, letters/numbers/_)</label>
+      <label class="label" for="username">Username</label>
       <input id="username" class="input" placeholder="e.g., ghost_17" autocomplete="off" maxlength="20" />
+      <div id="usernameHelp" class="field-help muted">3–20 chars. Letters, numbers, underscore.</div>
 
       <div class="row">
         <button id="btnRandom" class="btn primary">Join Random Team</button>
@@ -34,30 +39,40 @@
           <h2>Create Team</h2>
           <label class="label" for="teamName">Team name</label>
           <input id="teamName" class="input" placeholder="e.g., NightOps" maxlength="40" />
+          <div id="teamNameHelp" class="field-help muted">2–40 chars.</div>
+
           <label class="label" for="teamDesc">Description (optional)</label>
-          <textarea id="teamDesc" class="input" rows="3" placeholder="Short description (optional)" maxlength="200"></textarea>
+          <textarea id="teamDesc" class="input" rows="3" placeholder="What is this team for?" maxlength="200"></textarea>
           <button id="btnCreate" class="btn">Create Team</button>
         </div>
 
         <div class="panel">
           <h2>Join by Code</h2>
           <label class="label" for="teamCode">Team code</label>
-          <input id="teamCode" class="input" placeholder="e.g., AbC123xY" maxlength="10" />
+          <input id="teamCode" class="input mono" placeholder="e.g., AbC123xY" maxlength="10" />
+          <div id="teamCodeHelp" class="field-help muted">6–10 alphanumeric characters.</div>
           <button id="btnJoin" class="btn">Join Team</button>
         </div>
       </div>
 
       <div class="tiny">
-        Tip: Your session identity is stored locally in your browser (localStorage). Clearing site data resets it.
+        Session identity is stored in your browser (<span class="mono">localStorage</span>). Clearing site data resets it.
       </div>
 
       <div id="toast" class="toast hidden"></div>
     </section>
 
-    <footer class="footer">
-      <a href="/admin.html" class="link">Admin Reports</a>
-      <span class="muted">•</span>
-      <span class="muted">Privacy vibe mode: ON</span>
+    <footer class="footer spread">
+      <div>
+        <a href="/about.html" class="link">About</a>
+        <span class="muted">•</span>
+        <a href="/privacy.html" class="link">Privacy</a>
+        <span class="muted">•</span>
+        <a href="/terms.html" class="link">Terms</a>
+        <span class="muted">•</span>
+        <a href="/admin.html" class="link">Admin Reports</a>
+      </div>
+      <span class="muted">v1 • Phase 1 polish</span>
     </footer>
   </main>
 
