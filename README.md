@@ -139,3 +139,17 @@ NGINX_REQUIRED=1
 ```
 
 in cron environment or healthcheck invocation.
+
+### Phase 5: Admin endpoint protection
+
+`/api/admin/reports` now has:
+
+1. **IP allowlist (optional)** via `.env`:
+   - `ADMIN_ALLOWLIST=127.0.0.1,::1,::ffff:127.0.0.1`
+   - If unset, endpoint is not IP-restricted.
+
+2. **Brute-force lockout**:
+   - `ADMIN_MAX_FAILS` (default: `5`)
+   - `ADMIN_LOCK_MS` (default: `600000` = 10 min)
+
+After repeated failed token attempts from same IP, endpoint returns HTTP 429 until lock expires.

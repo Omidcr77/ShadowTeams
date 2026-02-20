@@ -27,8 +27,29 @@ function makeCode(minLen, maxLen) {
   return out;
 }
 
+
+
+function parseAllowlist(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return [];
+  return v.split(',').map(x => x.trim()).filter(Boolean);
+}
+
+function ipAllowed(ip, allowlist) {
+  if (!allowlist.length) return true; // if unset, do not block
+  const norm = String(ip || '').trim();
+  return allowlist.includes(norm);
+}
+
 function buildApiRouter({ stmt, getOnlineCountByCode, createTeam }) {
   const router = express.Router();
+
+  // Admin security controls
+  const ADMIN_ALLOWLIST = parseAllowlist(process.env.ADMIN_ALLOWLIST || '127.0.0.1,::1,::ffff:127.0.0.1');
+  const ADMIN_MAX_FAILS = Math.max(1, Number(process.env.ADMIN_MAX_FAILS || 5));
+  const ADMIN_LOCK_MS = Math.max(10_000, Number(process.env.ADMIN_LOCK_MS || 10 * 60 * 1000));
+  // key: remote ip -> {fails:number, lockedUntil:number}
+  const adminRate = new Map();
 
   // POST /api/team/create {username, teamName, description?} -> {teamCode}
   router.post('/team/create', (req, res) => {
@@ -167,9 +188,33 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam }) {
 
   // GET /api/admin/reports (Authorization: Bearer ADMIN_TOKEN) -> list reports
   router.get('/admin/reports', (req, res) => {
+    const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
+
+    if (!ipAllowed(ip, ADMIN_ALLOWLIST)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const now = Date.now();
+    const rec = adminRate.get(ip) || { fails: 0, lockedUntil: 0 };
+    if (rec.lockedUntil && rec.lockedUntil > now) {
+      const retryAfter = Math.ceil((rec.lockedUntil - now) / 1000);
+      return res.status(429).json({ error: `Too many failed attempts. Retry in ${retryAfter}s` });
+    }
+
     const auth = req.get('authorization') || '';
     const token = process.env.ADMIN_TOKEN || '';
-    if (!token || auth !== `Bearer ${token}`) return res.status(401).json({ error: 'Unauthorized' });
+    if (!token || auth !== `Bearer ${token}`) {
+      rec.fails += 1;
+      if (rec.fails >= ADMIN_MAX_FAILS) {
+        rec.lockedUntil = now + ADMIN_LOCK_MS;
+        rec.fails = 0;
+      }
+      adminRate.set(ip, rec);
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // success: clear failed attempts for this ip
+    adminRate.delete(ip);
 
     const limit = Math.max(1, Math.min(500, Number(req.query.limit || 200)));
     const rows = stmt.reportsList.all(limit);
