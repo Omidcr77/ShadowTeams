@@ -41,7 +41,7 @@ function ipAllowed(ip, allowlist) {
   return allowlist.includes(norm);
 }
 
-function buildApiRouter({ stmt, getOnlineCountByCode, createTeam }) {
+function buildApiRouter({ stmt, getOnlineCountByCode, createTeam, verifyTeamPassphrase }) {
   const router = express.Router();
 
   // Admin security controls
@@ -53,7 +53,7 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam }) {
 
   // POST /api/team/create {username, teamName, description?} -> {teamCode}
   router.post('/team/create', (req, res) => {
-    const { username, teamName, description } = req.body || {};
+    const { username, teamName, description, passphrase } = req.body || {};
     if (!validateUsername(username)) return res.status(400).json({ error: 'Invalid username' });
     if (typeof teamName !== 'string' || teamName.trim().length < 2 || teamName.trim().length > 40) {
       return res.status(400).json({ error: 'Invalid teamName (2-40 chars)' });
@@ -61,7 +61,8 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam }) {
 
     const team = createTeam({
       name: teamName.trim(),
-      description: typeof description === 'string' ? description.trim().slice(0, 200) : null
+      description: typeof description === 'string' ? description.trim().slice(0, 200) : null,
+      passphrase: typeof passphrase === 'string' ? passphrase : ''
     });
 
     return res.json({ teamCode: team.code });
@@ -69,12 +70,17 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam }) {
 
   // POST /api/team/join {username, teamCode} -> {team}
   router.post('/team/join', (req, res) => {
-    const { username, teamCode } = req.body || {};
+    const { username, teamCode, passphrase } = req.body || {};
     if (!validateUsername(username)) return res.status(400).json({ error: 'Invalid username' });
     if (!validateTeamCode(teamCode)) return res.status(400).json({ error: 'Invalid teamCode' });
 
     const team = stmt.teamByCode.get(teamCode);
     if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    if (team.passphrase_hash) {
+      const ok = verifyTeamPassphrase ? verifyTeamPassphrase(team, typeof passphrase === 'string' ? passphrase : '') : false;
+      if (!ok) return res.status(403).json({ error: 'Invalid room passphrase' });
+    }
 
     return res.json({
       team: {
@@ -99,7 +105,7 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam }) {
     const recentTeams = stmt.teamList.all(100); // recent 100
     for (const t of recentTeams) {
       const oc = getOnlineCountByCode(t.code);
-      if (oc > 0) candidates.push({ t, oc });
+      if (oc > 0 && !t.passphrase_hash) candidates.push({ t, oc });
     }
 
     candidates.sort((a, b) => a.oc - b.oc); // prefer less populated
@@ -158,6 +164,33 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam }) {
     const id = Number(info.lastInsertRowid);
 
     return res.json({ ok: true, message: { id, username, content: text, created_at: createdAt } });
+  });
+
+
+
+  // POST /api/message/:id/delete with x-session-id -> {ok}
+  router.post('/message/:id/delete', (req, res) => {
+    const sid = req.get('x-session-id');
+    if (typeof sid !== 'string' || sid.length < 10 || !req.user_hash) {
+      return res.status(400).json({ error: 'Missing x-session-id' });
+    }
+
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid message id' });
+
+    const msg = stmt.messageById.get(id);
+    if (!msg) return res.status(404).json({ error: 'Message not found' });
+    if (msg.user_hash !== req.user_hash) return res.status(403).json({ error: 'Not your message' });
+    if (msg.deleted_at) return res.json({ ok: true, alreadyDeleted: true });
+
+    const ageMs = Date.now() - new Date(msg.created_at).getTime();
+    if (!Number.isFinite(ageMs) || ageMs > 5 * 60 * 1000) {
+      return res.status(400).json({ error: 'Delete window expired (5 min)' });
+    }
+
+    const when = nowIso();
+    stmt.messageDeleteByOwner.run(when, req.user_hash, id, req.user_hash);
+    return res.json({ ok: true, deleted_at: when, id });
   });
 
   // POST /api/report {messageId, reason} -> ok

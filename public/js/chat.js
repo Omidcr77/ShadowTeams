@@ -20,10 +20,10 @@
   const toastEl = qs('#toast');
 
   const sessionId = getSessionId();
-
   const url = new URL(window.location.href);
   const teamCode = (url.searchParams.get('code') || sessionStorage.getItem('shadowteams_teamCode') || '').trim();
   const username = (sessionStorage.getItem('shadowteams_username') || localStorage.getItem('shadowteams_username') || '').trim();
+  const passphrase = (url.searchParams.get('p') || sessionStorage.getItem('shadowteams_passphrase') || '').trim();
 
   if (!teamCode || !/^[A-Za-z0-9]{6,10}$/.test(teamCode) || !validUsername(username)) {
     window.location.href = '/index.html';
@@ -35,49 +35,39 @@
   const roomHintEl = qs('#roomHint');
   if (roomHintEl) roomHintEl.textContent = `Room code: ${teamCode} (must match on both screens)`;
 
+  // Room mismatch hint across sessions
+  const lastRoom = localStorage.getItem('shadowteams_last_room');
+  if (lastRoom && lastRoom !== teamCode) {
+    toast(toastEl, `You switched rooms: ${lastRoom} -> ${teamCode}`);
+  }
+  localStorage.setItem('shadowteams_last_room', teamCode);
+
   const localBad = ['fuck','shit','bitch','asshole','bastard','dick','pussy','cunt'];
   function localFilter(text) {
     if (!profanityToggleEl.checked) return text;
     let out = text;
-    for (const w of localBad) {
-      const re = new RegExp(`\\b${w}\\b`, 'gi');
-      out = out.replace(re, '****');
-    }
+    for (const w of localBad) out = out.replace(new RegExp(`\\b${w}\\b`, 'gi'), '****');
     return out;
   }
 
   function setConnection(state) {
     connStatusEl.className = `status status-${state}`;
-    if (state === 'online') connStatusEl.textContent = 'Online';
-    if (state === 'offline') connStatusEl.textContent = 'Reconnecting…';
-    if (state === 'connecting') connStatusEl.textContent = 'Connecting…';
-    if (state === 'fallback') connStatusEl.textContent = 'Fallback mode';
+    connStatusEl.textContent = ({online:'Online',offline:'Reconnecting…',connecting:'Connecting…',fallback:'Fallback mode'})[state] || state;
     sendBtn.disabled = !(state === 'online' || state === 'fallback');
   }
 
   function formatTime(iso) {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    return `${hh}:${mm}`;
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  }
+
+  function isNearBottom() {
+    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
   }
 
   function scrollToBottom() {
     messagesEl.scrollTop = messagesEl.scrollHeight;
-  }
-
-  const renderedIds = new Set();
-  let unseenCount = 0;
-  function updateEmptyState() {
-    if (!emptyStateEl) return;
-    emptyStateEl.style.display = messagesEl.querySelector('.msg') ? 'none' : 'block';
-  }
-
-
-  function isNearBottom() {
-    const threshold = 80;
-    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < threshold;
   }
 
   function setUnreadMarker(show, count = 0) {
@@ -86,29 +76,86 @@
     if (show) unreadMarkerEl.textContent = count > 1 ? `${count} new messages` : 'New message';
   }
 
-  function addMessage({ id, username: u, content, created_at }) {
+  const renderedIds = new Set();
+  const messageNodes = new Map();
+  let unseenCount = 0;
+  let ws = null;
+  let reconnectTimer = null;
+  let connectWatchdog = null;
+  let reconnectAttempts = 0;
+  let fallbackPollTimer = null;
+  let fallbackEnabled = false;
+  let typingTimer = null;
+  let isTyping = false;
+  let sendCooldownUntil = 0;
+  const typingUsers = new Map();
+
+  function updateOnlineText(n) {
+    const num = Number(n || 0);
+    onlineCountEl.textContent = String(num);
+    const sub = document.querySelector('.chat-sub');
+    if (sub) {
+      const others = Math.max(0, num - 1);
+      sub.setAttribute('title', others > 0 ? `You + ${others} other(s) in this room` : 'Only you in this room');
+    }
+  }
+
+  function updateEmptyState() {
+    emptyStateEl.style.display = messagesEl.querySelector('.msg') ? 'none' : 'block';
+  }
+
+  function applyDeletedVisual(node) {
+    if (!node) return;
+    const content = node.querySelector('.content');
+    if (content) {
+      content.textContent = '[deleted]';
+      content.style.opacity = '0.65';
+      content.style.fontStyle = 'italic';
+    }
+    const delBtn = node.querySelector('.delete-own');
+    if (delBtn) delBtn.remove();
+  }
+
+  function canDeleteMessage(msg) {
+    if (!msg || msg.username !== username || !msg.id) return false;
+    const age = Date.now() - new Date(msg.created_at).getTime();
+    return Number.isFinite(age) && age <= 5 * 60 * 1000 && msg.content !== '[deleted]';
+  }
+
+  async function deleteMessage(id) {
+    if (!id) return;
+    if (fallbackEnabled) {
+      const r = await fetch(`/api/message/${id}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Session-Id': sessionId },
+        body: '{}'
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Delete failed');
+      const node = messageNodes.get(id);
+      applyDeletedVisual(node);
+      return;
+    }
+    if (!sendJson({ type: 'delete_message', id })) throw new Error('Not connected');
+  }
+
+  function addMessage(msg) {
+    const { id, username: u, content, created_at, deleted_at } = msg;
     if (id && renderedIds.has(id)) return;
     if (id) renderedIds.add(id);
 
     const wrap = document.createElement('div');
     wrap.className = 'msg';
+    if (id) wrap.dataset.id = String(id);
 
     const bubble = document.createElement('div');
     bubble.className = 'bubble' + (u === username ? ' me' : '');
 
     const meta = document.createElement('div');
     meta.className = 'meta';
-
-    const user = document.createElement('div');
-    user.className = 'user';
-    user.textContent = u;
-
-    const time = document.createElement('div');
-    time.className = 'time';
-    time.textContent = formatTime(created_at);
-
-    meta.appendChild(user);
-    meta.appendChild(time);
+    meta.innerHTML = `<div class="user"></div><div class="time"></div>`;
+    meta.querySelector('.user').textContent = u;
+    meta.querySelector('.time').textContent = formatTime(created_at);
 
     const body = document.createElement('div');
     body.className = 'content';
@@ -122,126 +169,96 @@
 
     const copyBtn = document.createElement('button');
     copyBtn.className = 'icon-btn';
-    copyBtn.title = 'Copy message';
     copyBtn.textContent = 'Copy';
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(String(content || ''));
-        toast(toastEl, 'Message copied');
-      } catch {
-        toast(toastEl, 'Copy failed');
-      }
-    });
+    copyBtn.title = 'Copy message';
+    copyBtn.onclick = async () => {
+      try { await navigator.clipboard.writeText(String(content || '')); toast(toastEl, 'Message copied'); }
+      catch { toast(toastEl, 'Copy failed'); }
+    };
 
     const reportBtn = document.createElement('button');
     reportBtn.className = 'icon-btn';
-    reportBtn.title = 'Report message';
     reportBtn.textContent = 'Report';
-    reportBtn.addEventListener('click', async () => {
-      const menu = [
-        '1) Spam',
-        '2) Harassment',
-        '3) Scam/Fraud',
-        '4) Illegal content',
-        '5) Hate/abuse',
-        '6) Other'
-      ].join('\n');
+    reportBtn.title = 'Report message';
+    reportBtn.onclick = async () => {
+      const menu = ['1) Spam','2) Harassment','3) Scam/Fraud','4) Illegal content','5) Hate/abuse','6) Other'].join('\n');
       const pick = prompt(`Report reason:\n${menu}\n\nType number or custom reason:`, '1');
       if (!pick) return;
-      const map = {
-        '1': 'Spam',
-        '2': 'Harassment',
-        '3': 'Scam/Fraud',
-        '4': 'Illegal content',
-        '5': 'Hate/abuse',
-        '6': 'Other'
-      };
+      const map = {'1':'Spam','2':'Harassment','3':'Scam/Fraud','4':'Illegal content','5':'Hate/abuse','6':'Other'};
       const reason = (map[pick.trim()] || pick).trim();
-      if (reason.length < 2 || reason.length > 200) {
-        toast(toastEl, 'Reason must be 2–200 chars');
-        return;
-      }
+      if (reason.length < 2 || reason.length > 200) return toast(toastEl, 'Reason must be 2–200 chars');
       try {
-        const r = await fetch('/api/report', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Session-Id': sessionId
-          },
-          body: JSON.stringify({ messageId: id, reason })
-        });
+        const r = await fetch('/api/report', { method:'POST', headers:{'Content-Type':'application/json','X-Session-Id':sessionId}, body: JSON.stringify({ messageId:id, reason }) });
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || 'Report failed');
         toast(toastEl, 'Reported. Thank you.');
-      } catch (e) {
-        toast(toastEl, e.message || 'Report failed');
-      }
-    });
+      } catch (e) { toast(toastEl, e.message || 'Report failed'); }
+    };
 
-    actions.appendChild(copyBtn);
-    actions.appendChild(reportBtn);
-    wrap.appendChild(bubble);
-    wrap.appendChild(actions);
+    actions.append(copyBtn, reportBtn);
 
-    const shouldStick = isNearBottom();
-    messagesEl.appendChild(wrap);
-    updateEmptyState();
-    if (shouldStick) {
-      scrollToBottom();
-      unseenCount = 0;
-      setUnreadMarker(false);
-    } else {
-      unseenCount += 1;
-      setUnreadMarker(true, unseenCount);
+    if (canDeleteMessage(msg)) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'icon-btn delete-own';
+      delBtn.textContent = 'Delete';
+      delBtn.title = 'Delete your message (5 min)';
+      delBtn.onclick = async () => {
+        try { await deleteMessage(id); }
+        catch (e) { toast(toastEl, e.message || 'Delete failed'); }
+      };
+      actions.appendChild(delBtn);
     }
+
+    wrap.append(bubble, actions);
+
+    const stick = isNearBottom();
+    messagesEl.appendChild(wrap);
+    if (id) messageNodes.set(id, wrap);
+    if (deleted_at || content === '[deleted]') applyDeletedVisual(wrap);
+    updateEmptyState();
+
+    if (stick) {
+      scrollToBottom(); unseenCount = 0; setUnreadMarker(false);
+    } else {
+      unseenCount += 1; setUnreadMarker(true, unseenCount);
+    }
+  }
+
+  function onMessageDeleted(id) {
+    const node = messageNodes.get(Number(id));
+    applyDeletedVisual(node);
   }
 
   async function loadHistory() {
     try {
-      const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=50`);
+      const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=60`);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Failed to load history');
       messagesEl.innerHTML = '';
       renderedIds.clear();
+      messageNodes.clear();
       if (!j.messages.length) messagesEl.appendChild(emptyStateEl);
       for (const m of j.messages) addMessage(m);
       updateEmptyState();
       scrollToBottom();
-      unseenCount = 0;
-      setUnreadMarker(false);
-    } catch (e) {
-      toast(toastEl, e.message || 'Failed to load history');
-    }
+      unseenCount = 0; setUnreadMarker(false);
+    } catch (e) { toast(toastEl, e.message || 'Failed to load history'); }
   }
-
-  let ws = null;
-  let reconnectTimer = null;
-  let connectWatchdog = null;
-  let reconnectAttempts = 0;
-  let fallbackPollTimer = null;
-  let fallbackEnabled = false;
-  let typingTimer = null;
-  let isTyping = false;
-  const typingUsers = new Map();
 
   function updateTypingLine() {
     const now = Date.now();
-    for (const [u, t] of typingUsers.entries()) {
-      if (now - t > 2200) typingUsers.delete(u);
-    }
+    for (const [u,t] of typingUsers.entries()) if (now - t > 2200) typingUsers.delete(u);
     const others = [...typingUsers.keys()].filter(u => u !== username);
     typingEl.textContent = others.length === 0 ? '' : (others.length === 1 ? `${others[0]} is typing…` : `${others.slice(0,2).join(', ')} are typing…`);
   }
 
   async function pollFallback() {
     try {
-      const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=50`, { cache: 'no-store' });
+      const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=60`, { cache:'no-store' });
       const j = await r.json();
       if (!r.ok) return;
-      const before = renderedIds.size;
       for (const m of j.messages) addMessage(m);
-      if (renderedIds.size > before) scrollToBottom();
-      onlineCountEl.textContent = '1+';
+      updateOnlineText(1);
     } catch {}
   }
 
@@ -256,20 +273,14 @@
 
   async function diagnoseConnectivity() {
     try {
-      const r = await fetch('/health', { cache: 'no-store' });
-      if (r.ok) {
-        enableFallbackMode();
-      } else {
-        toast(toastEl, 'Server not reachable right now.');
-      }
-    } catch {
-      toast(toastEl, 'Network issue: cannot reach server.');
-    }
+      const r = await fetch('/health', { cache:'no-store' });
+      if (r.ok) enableFallbackMode();
+      else toast(toastEl, 'Server not reachable right now.');
+    } catch { toast(toastEl, 'Network issue: cannot reach server.'); }
   }
 
   function wsUrl() {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${location.host}/ws`;
+    return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
   }
 
   function sendJson(obj) {
@@ -280,93 +291,61 @@
 
   function connect() {
     if (fallbackEnabled) return;
-    if (reconnectTimer) window.clearTimeout(reconnectTimer);
-    if (connectWatchdog) window.clearTimeout(connectWatchdog);
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (connectWatchdog) clearTimeout(connectWatchdog);
     setConnection('connecting');
 
     ws = new WebSocket(wsUrl());
 
-    connectWatchdog = window.setTimeout(() => {
+    connectWatchdog = setTimeout(() => {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         setConnection('offline');
         diagnoseConnectivity();
       }
     }, 8000);
 
-    ws.addEventListener('open', () => {
+    ws.onopen = () => {
       reconnectAttempts = 0;
-      if (connectWatchdog) window.clearTimeout(connectWatchdog);
-      sendJson({ type: 'join', teamCode, username, sessionId });
-    });
+      if (connectWatchdog) clearTimeout(connectWatchdog);
+      sendJson({ type:'join', teamCode, username, sessionId, passphrase });
+    };
 
-    ws.addEventListener('message', (ev) => {
+    ws.onmessage = (ev) => {
       const data = safeJsonParse(ev.data);
       if (!data || !data.type) return;
-
-      if (data.type === 'joined') {
-        setConnection('online');
-        teamNameEl.textContent = data.team?.name || 'Team';
-        onlineCountEl.textContent = String(data.onlineCount ?? 0);
-        return;
-      }
-
-      if (data.type === 'presence') {
-        onlineCountEl.textContent = String(data.onlineCount ?? 0);
-        return;
-      }
-
-      if (data.type === 'message') {
-        addMessage(data);
-        return;
-      }
-
+      if (data.type === 'joined') { setConnection('online'); teamNameEl.textContent = data.team?.name || 'Team'; updateOnlineText(data.onlineCount ?? 0); return; }
+      if (data.type === 'presence') { updateOnlineText(data.onlineCount ?? 0); return; }
+      if (data.type === 'message') { addMessage(data); return; }
+      if (data.type === 'message_deleted') { onMessageDeleted(data.id); return; }
       if (data.type === 'typing') {
         if (!data.username) return;
-        if (data.isTyping) typingUsers.set(data.username, Date.now());
-        else typingUsers.delete(data.username);
+        if (data.isTyping) typingUsers.set(data.username, Date.now()); else typingUsers.delete(data.username);
         updateTypingLine();
         return;
       }
+      if (data.type === 'rate_limited') return toast(toastEl, data.error || 'Slow down a bit.');
+      if (data.type === 'team_missing') { toast(toastEl, 'Team no longer exists. Returning…', 1500); setTimeout(() => (window.location.href='/index.html'), 900); return; }
+      if (data.type === 'error') toast(toastEl, data.error || 'Error');
+    };
 
-      if (data.type === 'rate_limited') {
-        toast(toastEl, data.error || 'Slow down a bit.');
-        return;
-      }
-
-      if (data.type === 'team_missing') {
-        toast(toastEl, 'Team no longer exists. Returning…', 1500);
-        setTimeout(() => window.location.href = '/index.html', 900);
-        return;
-      }
-
-      if (data.type === 'error') {
-        toast(toastEl, data.error || 'Error');
-      }
-    });
-
-    ws.addEventListener('close', () => {
-      if (connectWatchdog) window.clearTimeout(connectWatchdog);
+    ws.onclose = () => {
+      if (connectWatchdog) clearTimeout(connectWatchdog);
       if (fallbackEnabled) return;
       setConnection('offline');
       reconnectAttempts += 1;
       const delay = Math.min(6000, 1200 + reconnectAttempts * 600);
-      reconnectTimer = window.setTimeout(connect, delay);
+      reconnectTimer = setTimeout(connect, delay);
       if (reconnectAttempts >= 2) diagnoseConnectivity();
-    });
+    };
 
-    ws.addEventListener('error', () => {
-      // close handles reconnect/fallback
-    });
+    ws.onerror = () => {};
   }
 
   async function sendMessageHttpFallback(text) {
     const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Session-Id': sessionId
-      },
-      body: JSON.stringify({ username, content: text })
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Session-Id':sessionId},
+      body: JSON.stringify({ username, content:text })
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Failed to send');
@@ -374,95 +353,71 @@
   }
 
   async function sendMessage() {
+    const now = Date.now();
+    if (now < sendCooldownUntil) return;
     const text = (inputEl.value || '').trim();
     if (!text) return;
-    if (text.length > 500) {
-      toast(toastEl, 'Message too long (max 500)');
-      return;
-    }
+    if (text.length > 500) return toast(toastEl, 'Message too long (max 500)');
 
     try {
       if (fallbackEnabled) {
         await sendMessageHttpFallback(text);
-      } else {
-        if (!sendJson({ type: 'message', content: text })) {
-          toast(toastEl, 'Not connected yet. Try again in a second.');
-          return;
-        }
+      } else if (!sendJson({ type:'message', content:text })) {
+        return toast(toastEl, 'Not connected yet. Try again in a second.');
       }
       inputEl.value = '';
       updateCharCount();
       setTyping(false);
-    } catch (e) {
-      toast(toastEl, e.message || 'Failed to send');
-    }
+      // client cooldown to reduce accidental spam
+      sendCooldownUntil = Date.now() + 900;
+      sendBtn.disabled = true;
+      setTimeout(() => { if (connStatusEl.textContent !== 'Connecting…') sendBtn.disabled = !(connStatusEl.textContent === 'Online' || connStatusEl.textContent === 'Fallback mode'); }, 900);
+    } catch (e) { toast(toastEl, e.message || 'Failed to send'); }
   }
 
   function updateCharCount() {
-    const n = (inputEl.value || '').length;
-    charCountEl.textContent = `${n}/500`;
+    charCountEl.textContent = `${(inputEl.value || '').length}/500`;
   }
-
-  sendBtn.addEventListener('click', sendMessage);
-  inputEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  });
 
   function setTyping(v) {
     if (fallbackEnabled) return;
     if (isTyping === v) return;
     isTyping = v;
-    sendJson({ type: 'typing', isTyping: v });
+    sendJson({ type:'typing', isTyping:v });
   }
 
-  inputEl.addEventListener('input', () => {
+  sendBtn.onclick = sendMessage;
+  inputEl.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } };
+  inputEl.oninput = () => {
     updateCharCount();
     const has = (inputEl.value || '').trim().length > 0;
     setTyping(has);
-    if (typingTimer) window.clearTimeout(typingTimer);
-    typingTimer = window.setTimeout(() => setTyping(false), 1500);
-  });
+    if (typingTimer) clearTimeout(typingTimer);
+    typingTimer = setTimeout(() => setTyping(false), 1500);
+  };
 
+  messagesEl.onscroll = () => { if (isNearBottom()) { unseenCount = 0; setUnreadMarker(false); } };
+  profanityToggleEl.onchange = () => loadHistory();
 
-  messagesEl.addEventListener('scroll', () => {
-    if (isNearBottom()) {
-      unseenCount = 0;
-      setUnreadMarker(false);
-    }
-  });
-
-  profanityToggleEl.addEventListener('change', () => {
-    loadHistory();
-  });
-
-
-  copyInviteBtn.addEventListener('click', async () => {
+  copyInviteBtn.onclick = async () => {
     const invite = `${location.origin}/chat.html?code=${encodeURIComponent(teamCode)}`;
-    try {
-      await navigator.clipboard.writeText(invite);
-      toast(toastEl, 'Invite link copied');
-    } catch {
-      toast(toastEl, invite, 4000);
-    }
-  });
-  copyCodeBtn.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(teamCode);
-      toast(toastEl, 'Team code copied');
-    } catch {
-      toast(toastEl, `Team code: ${teamCode}`);
-    }
-  });
+    const text = `Join my ShadowTeams room: ${invite}`;
+    try { await navigator.clipboard.writeText(text); toast(toastEl, 'Invite text copied'); }
+    catch { toast(toastEl, text, 5000); }
+  };
 
-  leaveBtn.addEventListener('click', () => {
+  copyCodeBtn.onclick = async () => {
+    try { await navigator.clipboard.writeText(teamCode); toast(toastEl, 'Team code copied'); }
+    catch { toast(toastEl, `Team code: ${teamCode}`); }
+  };
+
+  leaveBtn.onclick = () => {
     try { if (ws) ws.close(); } catch {}
-    if (fallbackPollTimer) window.clearInterval(fallbackPollTimer);
+    if (fallbackPollTimer) clearInterval(fallbackPollTimer);
     sessionStorage.removeItem('shadowteams_teamCode');
+    sessionStorage.removeItem('shadowteams_passphrase');
     window.location.href = '/index.html';
-  });
+  };
 
   updateCharCount();
   setConnection('connecting');

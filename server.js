@@ -46,6 +46,17 @@ function hashSessionId(sessionId) {
   return crypto.createHash('sha256').update(String(sessionId) + '|' + USER_HASH_SALT).digest('hex');
 }
 
+function hashPassphrase(passphrase) {
+  return crypto.createHash('sha256').update(String(passphrase || '') + '|' + USER_HASH_SALT).digest('hex');
+}
+
+function verifyTeamPassphrase(team, passphrase) {
+  if (!team || !team.passphrase_hash) return true;
+  const ph = String(passphrase || '').trim();
+  if (!ph) return false;
+  return hashPassphrase(ph) === team.passphrase_hash;
+}
+
 function sanitizeContent(content) {
   const s = String(content || '').replace(/\r/g, '').trim();
   return s;
@@ -115,7 +126,7 @@ function makeCode(minLen, maxLen) {
 const { stmt } = initDb(DB_PATH);
 
 // Create team (ensures unique code)
-function createTeam({ name, description }) {
+function createTeam({ name, description, passphrase }) {
   let code;
   for (let i = 0; i < 10; i++) {
     code = makeCode(TEAM_CODE_MIN, TEAM_CODE_MAX);
@@ -126,7 +137,8 @@ function createTeam({ name, description }) {
   if (!code) throw new Error('Failed to generate unique team code');
 
   const createdAt = nowIso();
-  stmt.teamInsert.run(code, name, description || null, createdAt);
+  const passphraseHash = (typeof passphrase === "string" && passphrase.trim()) ? hashPassphrase(passphrase.trim()) : null;
+  stmt.teamInsert.run(code, name, description || null, createdAt, passphraseHash);
   return stmt.teamByCode.get(code);
 }
 
@@ -172,7 +184,8 @@ app.use((req, _res, next) => {
 app.use('/api', buildApiRouter({
   stmt,
   getOnlineCountByCode,
-  createTeam
+  createTeam,
+  verifyTeamPassphrase
 }));
 
 // Static hosting for local dev (Nginx serves in production)
@@ -231,7 +244,7 @@ wss.on('connection', (ws) => {
     if (!msg || typeof msg.type !== 'string') return;
 
     if (msg.type === 'join') {
-      const { teamCode, username, sessionId } = msg;
+      const { teamCode, username, sessionId, passphrase } = msg;
       if (!validateTeamCode(teamCode)) {
         ws.send(JSON.stringify({ type: 'error', error: 'Invalid team code' }));
         ws.close();
@@ -251,6 +264,12 @@ wss.on('connection', (ws) => {
       const team = stmt.teamByCode.get(teamCode);
       if (!team) {
         ws.send(JSON.stringify({ type: 'team_missing' }));
+        ws.close();
+        return;
+      }
+
+      if (!verifyTeamPassphrase(team, passphrase)) {
+        ws.send(JSON.stringify({ type: 'error', error: 'Invalid room passphrase' }));
         ws.close();
         return;
       }
@@ -330,6 +349,44 @@ wss.on('connection', (ws) => {
       });
       return;
     }
+
+    if (msg.type === 'delete_message') {
+      const id = Number(msg.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        ws.send(JSON.stringify({ type: 'error', error: 'Invalid message id' }));
+        return;
+      }
+
+      const existing = stmt.messageById.get(id);
+      if (!existing) {
+        ws.send(JSON.stringify({ type: 'error', error: 'Message not found' }));
+        return;
+      }
+      if (existing.team_id !== stmt.teamByCode.get(meta.teamCode).id) {
+        ws.send(JSON.stringify({ type: 'error', error: 'Wrong team' }));
+        return;
+      }
+      if (existing.user_hash !== meta.userHash) {
+        ws.send(JSON.stringify({ type: 'error', error: 'Not your message' }));
+        return;
+      }
+      if (existing.deleted_at) {
+        ws.send(JSON.stringify({ type: 'message_deleted', id, deleted_at: existing.deleted_at }));
+        return;
+      }
+
+      const ageMs = Date.now() - new Date(existing.created_at).getTime();
+      if (!Number.isFinite(ageMs) || ageMs > 5 * 60 * 1000) {
+        ws.send(JSON.stringify({ type: 'error', error: 'Delete window expired (5 min)' }));
+        return;
+      }
+
+      const when = nowIso();
+      stmt.messageDeleteByOwner.run(when, meta.userHash, id, meta.userHash);
+      broadcast(meta.teamCode, { type: 'message_deleted', id, deleted_at: when });
+      return;
+    }
+
   });
 
   ws.on('close', () => removeFromPresence(ws));

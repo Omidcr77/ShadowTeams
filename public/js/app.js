@@ -5,6 +5,8 @@
   const teamNameEl = qs('#teamName');
   const teamDescEl = qs('#teamDesc');
   const teamCodeEl = qs('#teamCode');
+  const createPassphraseEl = qs('#createPassphrase');
+  const joinPassphraseEl = qs('#joinPassphrase');
 
   const userHelp = qs('#usernameHelp');
   const teamNameHelp = qs('#teamNameHelp');
@@ -24,10 +26,11 @@
     localStorage.setItem('shadowteams_username', username);
   }
 
-  function goChat(teamCode) {
+  function goChat(teamCode, passphrase = '') {
     const username = usernameEl.value.trim();
     setUser(username);
     sessionStorage.setItem('shadowteams_teamCode', teamCode);
+    sessionStorage.setItem('shadowteams_passphrase', passphrase || '');
     sessionStorage.setItem('shadowteams_username', username);
     window.location.href = `/chat.html?code=${encodeURIComponent(teamCode)}`;
   }
@@ -107,7 +110,7 @@
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Failed');
-      goChat(j.team.code);
+      goChat(j.team.code, '');
     } catch (e) {
       toast(toastEl, mapError(e.message, 'Failed to join random team'));
     } finally {
@@ -126,17 +129,18 @@
 
     const teamName = teamNameEl.value.trim();
     const description = (teamDescEl.value || '').trim();
+    const passphrase = (createPassphraseEl?.value || '').trim();
 
     btnCreate.disabled = true;
     try {
       const r = await fetch('/api/team/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, teamName, description })
+        body: JSON.stringify({ username, teamName, description, passphrase })
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Failed');
-      goChat(j.teamCode);
+      goChat(j.teamCode, passphrase);
     } catch (e) {
       toast(toastEl, mapError(e.message, 'Failed to create team'));
     } finally {
@@ -154,17 +158,18 @@
     }
 
     const teamCode = teamCodeEl.value.trim();
+    const passphrase = (joinPassphraseEl?.value || '').trim();
 
     btnJoin.disabled = true;
     try {
       const r = await fetch('/api/team/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, teamCode })
+        body: JSON.stringify({ username, teamCode, passphrase })
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Failed');
-      goChat(j.team.code);
+      goChat(j.team.code, '');
     } catch (e) {
       toast(toastEl, mapError(e.message, 'Failed to join team'));
     } finally {

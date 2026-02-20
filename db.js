@@ -1,12 +1,17 @@
 // db.js
 const Database = require('better-sqlite3');
 
+function columnExists(db, table, column) {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+  return rows.some(r => r.name === column);
+}
+
 function initDb(dbPath) {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
-  // Schema
+  // Base schema
   db.exec(`
     CREATE TABLE IF NOT EXISTS teams (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,9 +46,20 @@ function initDb(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at);
   `);
 
+  // Lightweight migrations
+  if (!columnExists(db, 'teams', 'passphrase_hash')) {
+    db.exec(`ALTER TABLE teams ADD COLUMN passphrase_hash TEXT`);
+  }
+  if (!columnExists(db, 'messages', 'deleted_at')) {
+    db.exec(`ALTER TABLE messages ADD COLUMN deleted_at TEXT`);
+  }
+  if (!columnExists(db, 'messages', 'deleted_by_user_hash')) {
+    db.exec(`ALTER TABLE messages ADD COLUMN deleted_by_user_hash TEXT`);
+  }
+
   const stmt = {
     teamByCode: db.prepare(`SELECT * FROM teams WHERE code = ?`),
-    teamInsert: db.prepare(`INSERT INTO teams (code, name, description, created_at) VALUES (?, ?, ?, ?)`),
+    teamInsert: db.prepare(`INSERT INTO teams (code, name, description, created_at, passphrase_hash) VALUES (?, ?, ?, ?, ?)`),
     teamList: db.prepare(`SELECT * FROM teams ORDER BY id DESC LIMIT ?`),
 
     messagesInsert: db.prepare(`
@@ -51,16 +67,21 @@ function initDb(dbPath) {
       VALUES (?, ?, ?, ?, ?)
     `),
     messagesByTeamId: db.prepare(`
-      SELECT id, username, content, created_at
+      SELECT id, username, content, created_at, deleted_at
       FROM messages
       WHERE team_id = ?
       ORDER BY id DESC
       LIMIT ?
     `),
     messageById: db.prepare(`
-      SELECT id, team_id, username, user_hash, content, created_at
+      SELECT id, team_id, username, user_hash, content, created_at, deleted_at, deleted_by_user_hash
       FROM messages
       WHERE id = ?
+    `),
+    messageDeleteByOwner: db.prepare(`
+      UPDATE messages
+      SET content = '[deleted]', deleted_at = ?, deleted_by_user_hash = ?
+      WHERE id = ? AND user_hash = ? AND deleted_at IS NULL
     `),
 
     reportInsert: db.prepare(`

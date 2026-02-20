@@ -153,3 +153,24 @@ in cron environment or healthcheck invocation.
    - `ADMIN_LOCK_MS` (default: `600000` = 10 min)
 
 After repeated failed token attempts from same IP, endpoint returns HTTP 429 until lock expires.
+
+## Phase 6 (UX + trust features)
+
+Implemented:
+
+- Invite UX upgrades:
+  - copy invite text from chat header
+  - clearer room-code context + room switch toast
+- Optional room passphrase protection:
+  - set passphrase when creating team
+  - required on join for protected rooms
+  - WebSocket join also enforces passphrase
+- Sender-side delete (time-limited):
+  - delete own message within 5 minutes
+  - works in realtime and fallback mode
+- Anti-spam UX:
+  - lightweight send cooldown (~900ms)
+
+Notes:
+- Passphrase is stored as hash (`passphrase_hash`) in DB.
+- Message deletion marks content as `[deleted]` and records delete metadata.

@@ -43,6 +43,8 @@
 
           <label class="label" for="teamDesc">Description (optional)</label>
           <textarea id="teamDesc" class="input" rows="3" placeholder="What is this team for?" maxlength="200"></textarea>
+          <label class="label" for="createPassphrase">Room passphrase (optional)</label>
+          <input id="createPassphrase" class="input" type="password" placeholder="Set optional room passphrase" maxlength="64" />
           <button id="btnCreate" class="btn">Create Team</button>
         </div>
 
@@ -51,6 +53,8 @@
           <label class="label" for="teamCode">Team code</label>
           <input id="teamCode" class="input mono" placeholder="e.g., AbC123xY" maxlength="10" />
           <div id="teamCodeHelp" class="field-help muted">6–10 alphanumeric characters.</div>
+          <label class="label" for="joinPassphrase">Room passphrase (if required)</label>
+          <input id="joinPassphrase" class="input" type="password" placeholder="Enter room passphrase" maxlength="64" />
           <button id="btnJoin" class="btn">Join Team</button>
         </div>
       </div>
