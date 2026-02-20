@@ -1,4 +1,3 @@
-<!-- public/chat.html -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -15,11 +14,13 @@
       <div>
         <div class="chat-title">
           <span class="pill" id="teamCodePill">TEAM</span>
+          <button id="copyCodeBtn" class="icon-btn" title="Copy team code">Copy code</button>
           <span id="teamName">ShadowTeams</span>
         </div>
         <div class="chat-sub">
           <span id="onlineCount">0</span> online •
-          <span class="muted">You are</span> <span class="mono" id="meUser">...</span>
+          <span class="muted">You are</span> <span class="mono" id="meUser">...</span> •
+          <span id="connStatus" class="status status-connecting">Connecting…</span>
         </div>
       </div>
       <div class="chat-actions">
@@ -32,12 +33,18 @@
     </header>
 
     <section class="card chat-card">
-      <div id="messages" class="messages"></div>
+      <div id="messages" class="messages">
+        <div id="emptyState" class="empty-state">No messages yet. Start the conversation.</div>
+      </div>
       <div id="typing" class="typing muted"></div>
 
       <div class="composer">
         <textarea id="input" class="input composer-input" rows="2" placeholder="Type a message…" maxlength="500"></textarea>
         <button id="sendBtn" class="btn primary">Send</button>
+      </div>
+      <div class="composer-meta">
+        <span class="muted">Enter to send • Shift+Enter newline</span>
+        <span id="charCount" class="muted mono">0/500</span>
       </div>
 
       <div id="toast" class="toast hidden"></div>

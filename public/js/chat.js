@@ -1,11 +1,14 @@
-// public/js/chat.js
 (() => {
   const { getSessionId, toast, qs, validUsername, safeJsonParse } = window.ShadowUtil;
 
   const messagesEl = qs('#messages');
+  const emptyStateEl = qs('#emptyState');
   const inputEl = qs('#input');
   const sendBtn = qs('#sendBtn');
   const leaveBtn = qs('#leaveBtn');
+  const copyCodeBtn = qs('#copyCodeBtn');
+  const charCountEl = qs('#charCount');
+  const connStatusEl = qs('#connStatus');
   const teamCodePill = qs('#teamCodePill');
   const teamNameEl = qs('#teamName');
   const meUserEl = qs('#meUser');
@@ -28,16 +31,23 @@
   meUserEl.textContent = username;
   teamCodePill.textContent = teamCode;
 
-  // local profanity filter (client-side optional)
   const localBad = ['fuck','shit','bitch','asshole','bastard','dick','pussy','cunt'];
   function localFilter(text) {
     if (!profanityToggleEl.checked) return text;
     let out = text;
     for (const w of localBad) {
-      const re = new RegExp(`\\b${w}\\b`, 'gi');
+      const re = new RegExp(`\b${w}\b`, 'gi');
       out = out.replace(re, '****');
     }
     return out;
+  }
+
+  function setConnection(state) {
+    connStatusEl.className = `status status-${state}`;
+    if (state === 'online') connStatusEl.textContent = 'Online';
+    if (state === 'offline') connStatusEl.textContent = 'Reconnecting…';
+    if (state === 'connecting') connStatusEl.textContent = 'Connecting…';
+    sendBtn.disabled = state !== 'online';
   }
 
   function formatTime(iso) {
@@ -50,6 +60,11 @@
 
   function scrollToBottom() {
     messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function updateEmptyState() {
+    if (!emptyStateEl) return;
+    emptyStateEl.style.display = messagesEl.querySelector('.msg') ? 'none' : 'block';
   }
 
   function addMessage({ id, username: u, content, created_at }) {
@@ -112,6 +127,7 @@
     wrap.appendChild(actions);
 
     messagesEl.appendChild(wrap);
+    updateEmptyState();
   }
 
   async function loadHistory() {
@@ -120,7 +136,11 @@
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Failed to load history');
       messagesEl.innerHTML = '';
+      if (!j.messages.length) {
+        messagesEl.appendChild(emptyStateEl);
+      }
       for (const m of j.messages) addMessage(m);
+      updateEmptyState();
       scrollToBottom();
     } catch (e) {
       toast(toastEl, e.message || 'Failed to load history');
@@ -131,20 +151,15 @@
   let reconnectTimer = null;
   let typingTimer = null;
   let isTyping = false;
-  const typingUsers = new Map(); // username -> lastSeenMs
+  const typingUsers = new Map();
 
   function updateTypingLine() {
     const now = Date.now();
-    // remove stale (2s)
     for (const [u, t] of typingUsers.entries()) {
       if (now - t > 2200) typingUsers.delete(u);
     }
     const others = [...typingUsers.keys()].filter(u => u !== username);
-    if (others.length === 0) {
-      typingEl.textContent = '';
-      return;
-    }
-    typingEl.textContent = others.length === 1 ? `${others[0]} is typing…` : `${others.slice(0,2).join(', ')} are typing…`;
+    typingEl.textContent = others.length === 0 ? '' : (others.length === 1 ? `${others[0]} is typing…` : `${others.slice(0,2).join(', ')} are typing…`);
   }
 
   function wsUrl() {
@@ -153,12 +168,14 @@
   }
 
   function sendJson(obj) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
     ws.send(JSON.stringify(obj));
+    return true;
   }
 
   function connect() {
     if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    setConnection('connecting');
 
     ws = new WebSocket(wsUrl());
 
@@ -171,9 +188,9 @@
       if (!data || !data.type) return;
 
       if (data.type === 'joined') {
+        setConnection('online');
         teamNameEl.textContent = data.team?.name || 'Team';
         onlineCountEl.textContent = String(data.onlineCount ?? 0);
-        toast(toastEl, 'Connected');
         return;
       }
 
@@ -197,7 +214,7 @@
       }
 
       if (data.type === 'rate_limited') {
-        toast(toastEl, data.error || 'Rate limited');
+        toast(toastEl, data.error || 'Slow down a bit.');
         return;
       }
 
@@ -209,21 +226,19 @@
 
       if (data.type === 'error') {
         toast(toastEl, data.error || 'Error');
-        return;
       }
     });
 
     ws.addEventListener('close', () => {
-      toast(toastEl, 'Disconnected. Reconnecting…', 1400);
-      reconnectTimer = window.setTimeout(connect, 900);
+      setConnection('offline');
+      reconnectTimer = window.setTimeout(connect, 1200);
     });
 
     ws.addEventListener('error', () => {
-      // noop; close event triggers reconnect
+      // close handles reconnect
     });
   }
 
-  // Send message
   function sendMessage() {
     const text = (inputEl.value || '').trim();
     if (!text) return;
@@ -231,9 +246,18 @@
       toast(toastEl, 'Message too long (max 500)');
       return;
     }
-    sendJson({ type: 'message', content: text });
+    if (!sendJson({ type: 'message', content: text })) {
+      toast(toastEl, 'Not connected yet. Try again in a second.');
+      return;
+    }
     inputEl.value = '';
+    updateCharCount();
     setTyping(false);
+  }
+
+  function updateCharCount() {
+    const n = (inputEl.value || '').length;
+    charCountEl.textContent = `${n}/500`;
   }
 
   sendBtn.addEventListener('click', sendMessage);
@@ -251,6 +275,7 @@
   }
 
   inputEl.addEventListener('input', () => {
+    updateCharCount();
     const has = (inputEl.value || '').trim().length > 0;
     setTyping(has);
     if (typingTimer) window.clearTimeout(typingTimer);
@@ -258,8 +283,16 @@
   });
 
   profanityToggleEl.addEventListener('change', () => {
-    // Re-render by reloading history (simple)
     loadHistory();
+  });
+
+  copyCodeBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(teamCode);
+      toast(toastEl, 'Team code copied');
+    } catch {
+      toast(toastEl, `Team code: ${teamCode}`);
+    }
   });
 
   leaveBtn.addEventListener('click', () => {
@@ -268,6 +301,7 @@
     window.location.href = '/index.html';
   });
 
-  // boot
+  updateCharCount();
+  setConnection('connecting');
   loadHistory().then(connect);
 })();

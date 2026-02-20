@@ -87,3 +87,11 @@ h1{ margin:0; font-size:28px; letter-spacing:.2px; }
 .report pre{ margin: 10px 0 0; padding: 10px; border-radius: 12px; border:1px solid rgba(26,38,54,.7); background: rgba(0,0,0,.20); overflow:auto; }
 .doc h2{ margin-top:0; font-size:18px; }
 .doc ul{ line-height:1.6; }
+
+
+.status{font-weight:600;font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid transparent;}
+.status-online{color:#8bf2c2;border-color:rgba(139,242,194,.35);background:rgba(72,181,126,.12);}
+.status-offline{color:#ff9fb0;border-color:rgba(255,159,176,.35);background:rgba(255,77,109,.12);}
+.status-connecting{color:#c9bcff;border-color:rgba(201,188,255,.35);background:rgba(124,92,255,.12);}
+.empty-state{padding:18px;text-align:center;color:var(--muted);border:1px dashed rgba(154,168,187,.25);border-radius:12px;margin:8px;}
+.composer-meta{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:12px;}
