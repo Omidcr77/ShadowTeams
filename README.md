@@ -58,3 +58,40 @@ cp .env.example .env
 
 npm install
 npm start
+
+## Backup & Restore (Phase 4.1)
+
+### Backup now
+
+```bash
+sudo /var/www/shadowteams/deploy/backup-shadowteams.sh
+```
+
+Default paths:
+- DB: `/var/www/shadowteams/data/shadowteams.sqlite`
+- Backups: `/var/backups/shadowteams`
+- Retention: `KEEP_DAYS=14`
+
+### Restore from backup
+
+```bash
+sudo /var/www/shadowteams/deploy/restore-shadowteams.sh /var/backups/shadowteams/shadowteams-YYYYMMDD-HHMMSS.sqlite.gz
+```
+
+This will:
+1. Validate backup integrity
+2. Stop `shadowteams` service
+3. Replace DB file (with pre-restore copy)
+4. Start service again
+
+### Daily backup cron example
+
+```bash
+sudo crontab -e
+```
+
+Add:
+
+```cron
+15 2 * * * KEEP_DAYS=14 /var/www/shadowteams/deploy/backup-shadowteams.sh >> /var/log/shadowteams-backup.log 2>&1
+```
