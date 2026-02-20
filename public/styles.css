@@ -145,3 +145,6 @@ h1{ margin:0; font-size:28px; letter-spacing:.2px; }
 .onboarding-card{margin-top:12px}
 .onboarding-card h2{margin:0 0 8px;font-size:18px}
 .onboarding-card ul{margin:0;padding-left:20px;line-height:1.6;color:var(--text)}
+
+.member-list{margin:6px 0 0;padding-left:18px;max-height:220px;overflow:auto;font-size:13px}
+.member-list li{margin:4px 0}

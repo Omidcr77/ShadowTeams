@@ -22,6 +22,7 @@
   const profanityToggleEl = qs('#profanityToggle');
   const toastEl = qs('#toast');
   const roomCodeLg = qs('#roomCodeLg');
+  const memberListEl = qs('#memberList');
 
   const reportModal = qs('#reportModal');
   const reportReasonInput = qs('#reportReasonInput');
@@ -108,6 +109,20 @@
   function updateOnlineText(n) {
     const num = Number(n || 0);
     onlineCountEl.textContent = String(num);
+  }
+
+  function renderMemberList(users = []) {
+    if (!memberListEl) return;
+    memberListEl.innerHTML = '';
+    if (!users || !users.length) {
+      memberListEl.innerHTML = '<li class="muted">No active members visible</li>';
+      return;
+    }
+    for (const u of users) {
+      const li = document.createElement('li');
+      li.textContent = u + (u === username ? ' (you)' : '');
+      memberListEl.appendChild(li);
+    }
   }
 
   function updateEmptyState() {
@@ -334,6 +349,7 @@
       for (const m of j.messages) { if (!m.id || Number(m.id) > lastSeenMaxId || !renderedIds.has(m.id)) { addMessage(m); added++; } }
       if (added===0) return;
       updateOnlineText(1);
+      renderMemberList([username]);
     } catch {}
   }
 
@@ -376,12 +392,13 @@
         setConnection('online');
         teamNameEl.textContent = data.team?.name || 'Team';
         updateOnlineText(data.onlineCount ?? 0);
+        renderMemberList(data.onlineUsers || []);
         addTimeline('Connected');
         const privacyBadge = qs('#privacyBadge');
         if (privacyBadge) privacyBadge.textContent = data.team?.protected ? 'Privacy mode: passphrase-protected room' : 'Privacy mode: open room';
         return;
       }
-      if (data.type === 'presence') return updateOnlineText(data.onlineCount ?? 0);
+      if (data.type === 'presence') { updateOnlineText(data.onlineCount ?? 0); renderMemberList(data.onlineUsers || []); return; }
       if (data.type === 'message') return addMessage(data);
       if (data.type === 'message_deleted') return onMessageDeleted(data.id);
       if (data.type === 'typing') {

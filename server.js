@@ -89,6 +89,17 @@ function getOnlineCountByCode(teamCode) {
   return set ? set.size : 0;
 }
 
+function getOnlineUsersByCode(teamCode) {
+  const set = presence.get(teamCode);
+  if (!set) return [];
+  const names = new Set();
+  for (const ws of set) {
+    const meta = wsMeta.get(ws);
+    if (meta?.username) names.add(meta.username);
+  }
+  return [...names].sort((a,b)=>a.localeCompare(b));
+}
+
 function broadcast(teamCode, payloadObj) {
   const set = presence.get(teamCode);
   if (!set) return;
@@ -230,7 +241,7 @@ function removeFromPresence(ws) {
 
   // broadcast presence update
   const onlineCount = getOnlineCountByCode(teamCode);
-  broadcast(teamCode, { type: 'presence', onlineCount });
+  broadcast(teamCode, { type: 'presence', onlineCount, onlineUsers: getOnlineUsersByCode(teamCode) });
 }
 
 wss.on('connection', (ws) => {
@@ -293,11 +304,12 @@ wss.on('connection', (ws) => {
       ws.send(JSON.stringify({
         type: 'joined',
         team: { code: team.code, name: team.name, description: team.description || '', protected: !!team.passphrase_hash },
-        onlineCount: getOnlineCountByCode(teamCode)
+        onlineCount: getOnlineCountByCode(teamCode),
+        onlineUsers: getOnlineUsersByCode(teamCode)
       }));
 
       // broadcast presence update
-      broadcast(teamCode, { type: 'presence', onlineCount: getOnlineCountByCode(teamCode) });
+      broadcast(teamCode, { type: 'presence', onlineCount: getOnlineCountByCode(teamCode), onlineUsers: getOnlineUsersByCode(teamCode) });
       return;
     }
 
