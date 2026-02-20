@@ -7,6 +7,7 @@
   const sendBtn = qs('#sendBtn');
   const leaveBtn = qs('#leaveBtn');
   const copyCodeBtn = qs('#copyCodeBtn');
+  const copyInviteBtn = qs('#copyInviteBtn');
   const charCountEl = qs('#charCount');
   const connStatusEl = qs('#connStatus');
   const teamCodePill = qs('#teamCodePill');
@@ -30,6 +31,8 @@
 
   meUserEl.textContent = username;
   teamCodePill.textContent = teamCode;
+  const roomHintEl = qs('#roomHint');
+  if (roomHintEl) roomHintEl.textContent = `Room code: ${teamCode} (must match on both screens)`;
 
   const localBad = ['fuck','shit','bitch','asshole','bastard','dick','pussy','cunt'];
   function localFilter(text) {
@@ -369,6 +372,16 @@
     loadHistory();
   });
 
+
+  copyInviteBtn.addEventListener('click', async () => {
+    const invite = `${location.origin}/chat.html?code=${encodeURIComponent(teamCode)}`;
+    try {
+      await navigator.clipboard.writeText(invite);
+      toast(toastEl, 'Invite link copied');
+    } catch {
+      toast(toastEl, invite, 4000);
+    }
+  });
   copyCodeBtn.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(teamCode);

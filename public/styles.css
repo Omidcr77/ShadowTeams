@@ -97,3 +97,7 @@ h1{ margin:0; font-size:28px; letter-spacing:.2px; }
 .composer-meta{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:12px;}
 
 .status-fallback{color:#ffd98b;border-color:rgba(255,217,139,.35);background:rgba(255,194,77,.12);}
+
+.room-badge{font-weight:700;color:#c9bcff;}
+.hint{margin-left:6px;font-size:12px;}
+#teamCodePill{font-weight:700;border-color:rgba(255,217,139,.55);background:rgba(255,194,77,.18);color:#ffe2a6;}
