@@ -175,8 +175,7 @@ app.use(helmet({
       "style-src": ["'self'"],
       "script-src": ["'self'"],
       "connect-src": ["'self'", "ws:", "wss:"],
-      "form-action": ["'self'"],
-      "upgrade-insecure-requests": []
+      "form-action": ["'self'"]
     }
   },
   referrerPolicy: { policy: "no-referrer" }
