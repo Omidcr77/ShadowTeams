@@ -1,4 +1,3 @@
-<!-- public/admin.html -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -25,6 +24,7 @@
       <div class="row">
         <button id="loadBtn" class="btn primary">Load Reports</button>
         <button id="clearBtn" class="btn">Clear Token</button>
+        <button id="exportBtn" class="btn">Export CSV</button>
         <a class="btn" href="/index.html">Back</a>
       </div>
 
@@ -34,6 +34,30 @@
 
       <hr class="sep" />
 
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:10px;">
+        <div>
+          <label class="label" for="filterTeam">Filter team code</label>
+          <input id="filterTeam" class="input mono" placeholder="e.g. AbC123" />
+        </div>
+        <div>
+          <label class="label" for="filterUser">Filter message user</label>
+          <input id="filterUser" class="input" placeholder="e.g. ghost_23" />
+        </div>
+        <div>
+          <label class="label" for="filterReason">Filter reason</label>
+          <input id="filterReason" class="input" placeholder="e.g. spam" />
+        </div>
+        <div>
+          <label class="label" for="filterReviewed">Reviewed</label>
+          <select id="filterReviewed" class="input">
+            <option value="all">All</option>
+            <option value="no">Not reviewed</option>
+            <option value="yes">Reviewed</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="reportsMeta" class="tiny muted"></div>
       <div id="reports" class="reports"></div>
       <div id="toast" class="toast hidden"></div>
     </section>

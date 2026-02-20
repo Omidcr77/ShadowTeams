@@ -138,8 +138,29 @@
     reportBtn.title = 'Report message';
     reportBtn.textContent = 'Report';
     reportBtn.addEventListener('click', async () => {
-      const reason = prompt('Report reason (2–200 chars):', 'Abuse / spam');
-      if (!reason) return;
+      const menu = [
+        '1) Spam',
+        '2) Harassment',
+        '3) Scam/Fraud',
+        '4) Illegal content',
+        '5) Hate/abuse',
+        '6) Other'
+      ].join('\n');
+      const pick = prompt(`Report reason:\n${menu}\n\nType number or custom reason:`, '1');
+      if (!pick) return;
+      const map = {
+        '1': 'Spam',
+        '2': 'Harassment',
+        '3': 'Scam/Fraud',
+        '4': 'Illegal content',
+        '5': 'Hate/abuse',
+        '6': 'Other'
+      };
+      const reason = (map[pick.trim()] || pick).trim();
+      if (reason.length < 2 || reason.length > 200) {
+        toast(toastEl, 'Reason must be 2–200 chars');
+        return;
+      }
       try {
         const r = await fetch('/api/report', {
           method: 'POST',
