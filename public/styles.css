@@ -127,3 +127,17 @@ h1{ margin:0; font-size:28px; letter-spacing:.2px; }
 .pin-banner.hidden{display:none}
 .content mark{background:rgba(255,217,139,.35);color:#fff;padding:0 2px;border-radius:4px}
 .msg.system .bubble{background:rgba(48,214,200,.10);border-color:rgba(48,214,200,.25)}
+
+/* Phase 6C accessibility + mobile */
+:focus-visible{outline:2px solid #8e7bff;outline-offset:2px}
+.icon-btn:focus-visible,.btn:focus-visible,.chip:focus-visible,.input:focus-visible{box-shadow:0 0 0 3px rgba(124,92,255,.22)}
+@media(max-width:680px){
+  .container.chat{width:min(100vw,100%);padding:12px 8px 20px}
+  .chat-header{gap:8px;align-items:flex-start}
+  .chat-actions{width:100%;justify-content:space-between}
+  .messages{height:56vh}
+  .composer{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(11,15,20,.2),rgba(11,15,20,.95));padding-top:8px}
+  .composer-input{min-height:44px}
+  .room-panel{padding:10px}
+}
+.status,.pill,.chip{font-weight:600}

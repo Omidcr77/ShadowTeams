@@ -57,6 +57,7 @@
   let unseenCount = 0;
   let pendingReportId = null;
   let searchQuery = '';
+  let lastSeenMaxId = 0;
 
   const renderedIds = new Set();
   const messageNodes = new Map();
@@ -232,7 +233,7 @@
   function addMessage(msg) {
     const { id, username: u, content, created_at, deleted_at } = msg;
     if (id && renderedIds.has(id)) return;
-    if (id) renderedIds.add(id);
+    if (id) { renderedIds.add(id); if (Number(id)>lastSeenMaxId) lastSeenMaxId=Number(id); }
 
     const wrap = document.createElement('div');
     wrap.className = 'msg';
@@ -307,6 +308,7 @@
       const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=80`);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Failed to load history');
+      lastSeenMaxId = 0;
       messagesEl.innerHTML = '';
       renderedIds.clear(); messageNodes.clear();
       if (!j.messages.length) messagesEl.appendChild(emptyStateEl);
@@ -328,7 +330,9 @@
     try {
       const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=80`, { cache:'no-store' });
       const j = await r.json(); if (!r.ok) return;
-      for (const m of j.messages) addMessage(m);
+      let added = 0;
+      for (const m of j.messages) { if (!m.id || Number(m.id) > lastSeenMaxId || !renderedIds.has(m.id)) { addMessage(m); added++; } }
+      if (added===0) return;
       updateOnlineText(1);
     } catch {}
   }
