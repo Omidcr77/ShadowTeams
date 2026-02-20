@@ -174,3 +174,14 @@ Implemented:
 Notes:
 - Passphrase is stored as hash (`passphrase_hash`) in DB.
 - Message deletion marks content as `[deleted]` and records delete metadata.
+
+
+## Release v1.0.0
+
+ShadowTeams now includes:
+- advanced chat UX (search, pin, timeline, jump-to-latest)
+- fallback mode for blocked realtime channels
+- room passphrase protection
+- sender delete window
+- admin filtering/export and endpoint hardening
+- automated backup + healthcheck ops
