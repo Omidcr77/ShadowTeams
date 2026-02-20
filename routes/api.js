@@ -41,7 +41,7 @@ function ipAllowed(ip, allowlist) {
   return allowlist.includes(norm);
 }
 
-function buildApiRouter({ stmt, getOnlineCountByCode, createTeam, verifyTeamPassphrase }) {
+function buildApiRouter({ stmt, getOnlineCountByCode, getOnlineUsersByCode, createTeam, verifyTeamPassphrase, recordFallbackPresence }) {
   const router = express.Router();
 
   // Admin security controls
@@ -89,7 +89,7 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam, verifyTeamPass
         description: team.description || '',
         onlineCount: getOnlineCountByCode(team.code),
         protected: !!team.passphrase_hash,
-        protected: !!team.passphrase_hash
+        onlineUsers: getOnlineUsersByCode ? getOnlineUsersByCode(team.code) : []
       }
     });
   });
@@ -123,9 +123,36 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam, verifyTeamPass
         description: team.description || '',
         onlineCount: getOnlineCountByCode(team.code),
         protected: !!team.passphrase_hash,
-        protected: !!team.passphrase_hash
+        onlineUsers: getOnlineUsersByCode ? getOnlineUsersByCode(team.code) : []
       }
     });
+  });
+
+
+  // GET /api/team/:code/presence -> {onlineCount, onlineUsers}
+  router.get('/team/:code/presence', (req, res) => {
+    const code = req.params.code;
+    if (!validateTeamCode(code)) return res.status(400).json({ error: 'Invalid team code' });
+    const team = stmt.teamByCode.get(code);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+    const users = getOnlineUsersByCode ? getOnlineUsersByCode(code) : [];
+    return res.json({
+      onlineCount: users.length,
+      onlineUsers: users
+    });
+  });
+
+  // POST /api/team/:code/heartbeat {username} with x-session-id -> presence heartbeat for fallback mode
+  router.post('/team/:code/heartbeat', (req, res) => {
+    const code = req.params.code;
+    const { username } = req.body || {};
+    if (!validateTeamCode(code)) return res.status(400).json({ error: 'Invalid team code' });
+    if (!validateUsername(username)) return res.status(400).json({ error: 'Invalid username' });
+    const team = stmt.teamByCode.get(code);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+    if (!req.user_hash) return res.status(400).json({ error: 'Missing x-session-id' });
+    if (recordFallbackPresence) recordFallbackPresence(code, req.user_hash, username);
+    return res.json({ ok: true });
   });
 
   // GET /api/team/:code/messages?limit=50 -> messages
@@ -162,6 +189,8 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam, verifyTeamPass
 
     const team = stmt.teamByCode.get(code);
     if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    if (recordFallbackPresence) recordFallbackPresence(code, req.user_hash, username);
 
     const createdAt = nowIso();
     const info = stmt.messagesInsert.run(team.id, username, req.user_hash, text, createdAt);

@@ -35,6 +35,7 @@
   const teamCode = (url.searchParams.get('code') || sessionStorage.getItem('shadowteams_teamCode') || '').trim();
   const username = (sessionStorage.getItem('shadowteams_username') || localStorage.getItem('shadowteams_username') || '').trim();
   const passphrase = (url.searchParams.get('p') || sessionStorage.getItem('shadowteams_passphrase') || '').trim();
+  const isOnion = location.hostname.endsWith('.onion');
 
   if (!teamCode || !/^[A-Za-z0-9]{6,10}$/.test(teamCode) || !validUsername(username)) {
     window.location.href = '/index.html';
@@ -51,6 +52,8 @@
   let connectWatchdog = null;
   let reconnectAttempts = 0;
   let fallbackPollTimer = null;
+  let fallbackPresenceTimer = null;
+  let fallbackHeartbeatTimer = null;
   let fallbackEnabled = false;
   let typingTimer = null;
   let isTyping = false;
@@ -341,6 +344,29 @@
     typingEl.textContent = others.length === 0 ? '' : (others.length === 1 ? `${others[0]} is typing…` : `${others.slice(0,2).join(', ')} are typing…`);
   }
 
+
+  async function sendFallbackHeartbeat() {
+    try {
+      await fetch(`/api/team/${encodeURIComponent(teamCode)}/heartbeat`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Session-Id':sessionId},
+        body: JSON.stringify({ username })
+      });
+    } catch {}
+  }
+
+  async function pollFallbackPresence() {
+    try {
+      const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/presence`, { cache:'no-store' });
+      const j = await r.json();
+      if (!r.ok) return;
+      updateOnlineText(j.onlineCount ?? 1);
+      renderMemberList(j.onlineUsers || [username]);
+    } catch {
+      renderMemberList([username]);
+    }
+  }
+
   async function pollFallback() {
     try {
       const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=80`, { cache:'no-store' });
@@ -348,8 +374,7 @@
       let added = 0;
       for (const m of j.messages) { if (!m.id || Number(m.id) > lastSeenMaxId || !renderedIds.has(m.id)) { addMessage(m); added++; } }
       if (added===0) return;
-      updateOnlineText(1);
-      renderMemberList([username]);
+      // message sync only; presence handled separately
     } catch {}
   }
 
@@ -357,7 +382,12 @@
     if (fallbackEnabled) return;
     fallbackEnabled = true; setConnection('fallback');
     addTimeline('Switched to fallback mode');
-    pollFallback(); fallbackPollTimer = setInterval(pollFallback, 2500);
+    pollFallback();
+    pollFallbackPresence();
+    sendFallbackHeartbeat();
+    fallbackPollTimer = setInterval(pollFallback, 2500);
+    fallbackPresenceTimer = setInterval(pollFallbackPresence, 4000);
+    fallbackHeartbeatTimer = setInterval(sendFallbackHeartbeat, 15000);
   }
 
   async function diagnoseConnectivity() {
@@ -370,6 +400,10 @@
 
   function connect() {
     if (fallbackEnabled) return;
+    if (isOnion) {
+      enableFallbackMode();
+      return;
+    }
     if (reconnectTimer) clearTimeout(reconnectTimer);
     if (connectWatchdog) clearTimeout(connectWatchdog);
     setConnection('connecting');
@@ -496,6 +530,8 @@
   leaveBtn.onclick = () => {
     try { if (ws) ws.close(); } catch {}
     if (fallbackPollTimer) clearInterval(fallbackPollTimer);
+    if (fallbackPresenceTimer) clearInterval(fallbackPresenceTimer);
+    if (fallbackHeartbeatTimer) clearInterval(fallbackHeartbeatTimer);
     sessionStorage.removeItem('shadowteams_teamCode');
     sessionStorage.removeItem('shadowteams_passphrase');
     window.location.href = '/index.html';
@@ -505,6 +541,7 @@
   setConnection('connecting');
   loadHistory().then(async () => {
     await loadPin();
+    if (isOnion) addTimeline('Onion mode: fallback-first for reliability');
     connect();
   });
 })();

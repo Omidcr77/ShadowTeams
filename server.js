@@ -83,6 +83,8 @@ const presence = new Map();
 const wsMeta = new Map();
 // userHash -> [timestamps(ms)] recent messages
 const rateMap = new Map();
+// teamCode -> Map(userHash -> { username, lastSeen }) for HTTP fallback presence
+const fallbackPresence = new Map();
 
 function getOnlineCountByCode(teamCode) {
   const set = presence.get(teamCode);
@@ -90,14 +92,28 @@ function getOnlineCountByCode(teamCode) {
 }
 
 function getOnlineUsersByCode(teamCode) {
-  const set = presence.get(teamCode);
-  if (!set) return [];
   const names = new Set();
-  for (const ws of set) {
-    const meta = wsMeta.get(ws);
-    if (meta?.username) names.add(meta.username);
+  const set = presence.get(teamCode);
+  if (set) {
+    for (const ws of set) {
+      const meta = wsMeta.get(ws);
+      if (meta?.username) names.add(meta.username);
+    }
+  }
+  const fp = fallbackPresence.get(teamCode);
+  if (fp) {
+    const now = Date.now();
+    for (const v of fp.values()) {
+      if (now - v.lastSeen <= 90_000) names.add(v.username);
+    }
   }
   return [...names].sort((a,b)=>a.localeCompare(b));
+}
+
+function recordFallbackPresence(teamCode, userHash, username) {
+  if (!teamCode || !userHash || !username) return;
+  if (!fallbackPresence.has(teamCode)) fallbackPresence.set(teamCode, new Map());
+  fallbackPresence.get(teamCode).set(userHash, { username, lastSeen: Date.now() });
 }
 
 function broadcast(teamCode, payloadObj) {
@@ -194,8 +210,10 @@ app.use((req, _res, next) => {
 app.use('/api', buildApiRouter({
   stmt,
   getOnlineCountByCode,
+  getOnlineUsersByCode,
   createTeam,
-  verifyTeamPassphrase
+  verifyTeamPassphrase,
+  recordFallbackPresence
 }));
 
 // Static hosting for local dev (Nginx serves in production)
@@ -403,6 +421,17 @@ wss.on('connection', (ws) => {
   ws.on('close', () => removeFromPresence(ws));
   ws.on('error', () => removeFromPresence(ws));
 });
+
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [teamCode, m] of fallbackPresence.entries()) {
+    for (const [key, v] of m.entries()) {
+      if (now - v.lastSeen > 120_000) m.delete(key);
+    }
+    if (m.size === 0) fallbackPresence.delete(teamCode);
+  }
+}, 30_000);
 
 server.listen(PORT, '127.0.0.1', () => {
   log(`Server listening on http://127.0.0.1:${PORT}`);
