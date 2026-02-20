@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>ShadowTeams WS Test</title><link rel='stylesheet' href='/styles.css'></head>
+<body><div class='bg-noise'></div><main class='container'><section class='card'><h1 style='font-size:22px'>Realtime Connection Test</h1><p class='muted'>This checks HTTP + WebSocket from your current browser/session.</p><pre id='out' class='report' style='white-space:pre-wrap'></pre><button id='run' class='btn primary'>Run test</button></section></main>
+<script>
+const out=document.getElementById('out');
+function log(x){out.textContent += x+'\n';}
+async function run(){out.textContent=''; log('Testing /health ...');
+try{const r=await fetch('/health',{cache:'no-store'}); log('health: '+r.status+' '+await r.text());}catch(e){log('health error: '+e.message);}
+log('Testing WebSocket /ws ...');
+const ws=new WebSocket((location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/ws');
+let got=false;
+const timer=setTimeout(()=>{if(!got){log('ws timeout: no open within 10s'); try{ws.close()}catch{}}},10000);
+ws.onopen=()=>{got=true; clearTimeout(timer); log('ws open: OK'); ws.send(JSON.stringify({type:'join',teamCode:'NMmyKEMfmW',username:'diaguser',sessionId:'12345678-1234-1234-1234-123456789012'}));};
+ws.onmessage=(ev)=>{log('ws message: '+ev.data);};
+ws.onerror=()=>{log('ws error event');};
+ws.onclose=(ev)=>{log('ws close code='+ev.code+' reason='+(ev.reason||''));};
+}
+document.getElementById('run').onclick=run;
+</script></body></html>
