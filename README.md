@@ -106,3 +106,20 @@ The server now has:
 
 - `/etc/logrotate.d/shadowteams-backup`  
   Rotates `/var/log/shadowteams-backup.log` daily, keeps 14 compressed logs.
+
+### Healthcheck schedule installed (Phase 4.3)
+
+The server now has:
+
+- `/etc/cron.d/shadowteams-healthcheck`  
+  Runs every 15 minutes:
+  `/var/www/shadowteams/deploy/healthcheck-shadowteams.sh`
+
+- `/etc/logrotate.d/shadowteams-healthcheck`  
+  Rotates `/var/log/shadowteams-healthcheck.log` daily, keeps 14 compressed logs.
+
+Manual run:
+
+```bash
+sudo /var/www/shadowteams/deploy/healthcheck-shadowteams.sh
+```
