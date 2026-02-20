@@ -149,6 +149,8 @@
 
   let ws = null;
   let reconnectTimer = null;
+  let connectWatchdog = null;
+  let reconnectAttempts = 0;
   let typingTimer = null;
   let isTyping = false;
   const typingUsers = new Map();
@@ -160,6 +162,20 @@
     }
     const others = [...typingUsers.keys()].filter(u => u !== username);
     typingEl.textContent = others.length === 0 ? '' : (others.length === 1 ? `${others[0]} is typing…` : `${others.slice(0,2).join(', ')} are typing…`);
+  }
+
+
+  async function diagnoseConnectivity() {
+    try {
+      const r = await fetch('/health', { cache: 'no-store' });
+      if (r.ok) {
+        toast(toastEl, 'Server reachable, but realtime channel is blocked. Try new Tor tab / Standard security.');
+      } else {
+        toast(toastEl, 'Server not reachable right now.');
+      }
+    } catch {
+      toast(toastEl, 'Network issue: cannot reach server.');
+    }
   }
 
   function wsUrl() {
@@ -175,11 +191,21 @@
 
   function connect() {
     if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    if (connectWatchdog) window.clearTimeout(connectWatchdog);
     setConnection('connecting');
 
     ws = new WebSocket(wsUrl());
 
+    connectWatchdog = window.setTimeout(() => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setConnection('offline');
+        diagnoseConnectivity();
+      }
+    }, 8000);
+
     ws.addEventListener('open', () => {
+      reconnectAttempts = 0;
+      if (connectWatchdog) window.clearTimeout(connectWatchdog);
       sendJson({ type: 'join', teamCode, username, sessionId });
     });
 
@@ -230,8 +256,12 @@
     });
 
     ws.addEventListener('close', () => {
+      if (connectWatchdog) window.clearTimeout(connectWatchdog);
       setConnection('offline');
-      reconnectTimer = window.setTimeout(connect, 1200);
+      reconnectAttempts += 1;
+      const delay = Math.min(6000, 1200 + reconnectAttempts * 600);
+      reconnectTimer = window.setTimeout(connect, delay);
+      if (reconnectAttempts >= 2) diagnoseConnectivity();
     });
 
     ws.addEventListener('error', () => {
