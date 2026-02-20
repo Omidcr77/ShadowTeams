@@ -42,6 +42,17 @@ function initDb(dbPath) {
       FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE
     );
 
+
+
+    CREATE TABLE IF NOT EXISTS pins (
+      team_id INTEGER PRIMARY KEY,
+      message_id INTEGER NOT NULL,
+      pinned_by_user_hash TEXT NOT NULL,
+      pinned_at TEXT NOT NULL,
+      FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE,
+      FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_messages_team_created ON messages(team_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_reports_created ON reports(created_at);
   `);
@@ -88,6 +99,17 @@ function initDb(dbPath) {
       INSERT INTO reports (message_id, team_id, reporter_user_hash, reason, created_at)
       VALUES (?, ?, ?, ?, ?)
     `),
+    pinByTeamId: db.prepare(`SELECT * FROM pins WHERE team_id = ?`),
+    pinUpsert: db.prepare(`
+      INSERT INTO pins (team_id, message_id, pinned_by_user_hash, pinned_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(team_id) DO UPDATE SET
+        message_id=excluded.message_id,
+        pinned_by_user_hash=excluded.pinned_by_user_hash,
+        pinned_at=excluded.pinned_at
+    `),
+    pinDeleteByTeamId: db.prepare(`DELETE FROM pins WHERE team_id = ?`),
+
     reportsList: db.prepare(`
       SELECT
         r.id AS report_id,

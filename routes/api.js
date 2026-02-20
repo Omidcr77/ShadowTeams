@@ -87,7 +87,9 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam, verifyTeamPass
         code: team.code,
         name: team.name,
         description: team.description || '',
-        onlineCount: getOnlineCountByCode(team.code)
+        onlineCount: getOnlineCountByCode(team.code),
+        protected: !!team.passphrase_hash,
+        protected: !!team.passphrase_hash
       }
     });
   });
@@ -119,7 +121,9 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam, verifyTeamPass
         code: team.code,
         name: team.name,
         description: team.description || '',
-        onlineCount: getOnlineCountByCode(team.code)
+        onlineCount: getOnlineCountByCode(team.code),
+        protected: !!team.passphrase_hash,
+        protected: !!team.passphrase_hash
       }
     });
   });
@@ -191,6 +195,47 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam, verifyTeamPass
     const when = nowIso();
     stmt.messageDeleteByOwner.run(when, req.user_hash, id, req.user_hash);
     return res.json({ ok: true, deleted_at: when, id });
+  });
+
+
+
+  // GET /api/team/:code/pin -> pinned message (if any)
+  router.get('/team/:code/pin', (req, res) => {
+    const code = req.params.code;
+    if (!validateTeamCode(code)) return res.status(400).json({ error: 'Invalid team code' });
+    const team = stmt.teamByCode.get(code);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+    const pin = stmt.pinByTeamId.get(team.id);
+    if (!pin) return res.json({ pin: null });
+    const msg = stmt.messageById.get(pin.message_id);
+    if (!msg) return res.json({ pin: null });
+    return res.json({ pin: { ...pin, message: { id: msg.id, username: msg.username, content: msg.content, created_at: msg.created_at } } });
+  });
+
+  // POST /api/team/:code/pin {messageId} with x-session-id -> ok
+  router.post('/team/:code/pin', (req, res) => {
+    if (!req.user_hash) return res.status(400).json({ error: 'Missing x-session-id' });
+    const code = req.params.code;
+    const messageId = Number((req.body || {}).messageId);
+    if (!validateTeamCode(code)) return res.status(400).json({ error: 'Invalid team code' });
+    if (!Number.isInteger(messageId) || messageId <= 0) return res.status(400).json({ error: 'Invalid messageId' });
+    const team = stmt.teamByCode.get(code);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+    const msg = stmt.messageById.get(messageId);
+    if (!msg || msg.team_id !== team.id) return res.status(404).json({ error: 'Message not found in team' });
+    stmt.pinUpsert.run(team.id, messageId, req.user_hash, nowIso());
+    return res.json({ ok: true });
+  });
+
+  // DELETE /api/team/:code/pin with x-session-id -> ok
+  router.delete('/team/:code/pin', (req, res) => {
+    if (!req.user_hash) return res.status(400).json({ error: 'Missing x-session-id' });
+    const code = req.params.code;
+    if (!validateTeamCode(code)) return res.status(400).json({ error: 'Invalid team code' });
+    const team = stmt.teamByCode.get(code);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+    stmt.pinDeleteByTeamId.run(team.id);
+    return res.json({ ok: true });
   });
 
   // POST /api/report {messageId, reason} -> ok

@@ -292,7 +292,7 @@ wss.on('connection', (ws) => {
       // ack
       ws.send(JSON.stringify({
         type: 'joined',
-        team: { code: team.code, name: team.name, description: team.description || '' },
+        team: { code: team.code, name: team.name, description: team.description || '', protected: !!team.passphrase_hash },
         onlineCount: getOnlineCountByCode(teamCode)
       }));
 
