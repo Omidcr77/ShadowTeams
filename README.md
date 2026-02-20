@@ -95,3 +95,14 @@ Add:
 ```cron
 15 2 * * * KEEP_DAYS=14 /var/www/shadowteams/deploy/backup-shadowteams.sh >> /var/log/shadowteams-backup.log 2>&1
 ```
+
+### Automated schedule installed (Phase 4.2)
+
+The server now has:
+
+- `/etc/cron.d/shadowteams-backup`  
+  Runs daily at **02:15 UTC**:
+  `KEEP_DAYS=14 /var/www/shadowteams/deploy/backup-shadowteams.sh`
+
+- `/etc/logrotate.d/shadowteams-backup`  
+  Rotates `/var/log/shadowteams-backup.log` daily, keeps 14 compressed logs.
