@@ -5,6 +5,7 @@ LOG_PREFIX="[healthcheck]"
 TS="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 DB_PATH="${DB_PATH:-/var/www/shadowteams/data/shadowteams.sqlite}"
 ONION_HOST_FILE="${ONION_HOST_FILE:-/var/lib/tor/shadowteams/hostname}"
+NGINX_REQUIRED="${NGINX_REQUIRED:-0}"
 
 status() {
   local svc="$1" out
@@ -33,4 +34,9 @@ if [[ -r "$ONION_HOST_FILE" ]]; then
   ONION_LEN="$(wc -c < "$ONION_HOST_FILE" | tr -d ' ')"
 fi
 
-echo "$LOG_PREFIX ts=$TS shadowteams=$(status shadowteams) tor=$(status tor) nginx=$(status nginx || true) apache2=$(status apache2 || true) http=$HTTP_OK db=$DB_OK onion_hostname_bytes=$ONION_LEN"
+NGINX_STATE="$(status nginx)"
+if [[ "$NGINX_REQUIRED" != "1" && "$NGINX_STATE" == "inactive" ]]; then
+  NGINX_STATE="disabled"
+fi
+
+echo "$LOG_PREFIX ts=$TS shadowteams=$(status shadowteams) tor=$(status tor) nginx=$NGINX_STATE apache2=$(status apache2) http=$HTTP_OK db=$DB_OK onion_hostname_bytes=$ONION_LEN"

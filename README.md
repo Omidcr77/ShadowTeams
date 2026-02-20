@@ -123,3 +123,19 @@ Manual run:
 ```bash
 sudo /var/www/shadowteams/deploy/healthcheck-shadowteams.sh
 ```
+
+### Phase 4.5 cleanup + startup checks
+
+- Nginx disabled/cleared (ShadowTeams currently runs directly on Node+Tor)
+- Healthcheck now treats inactive nginx as `disabled` by default (`NGINX_REQUIRED=0`)
+- Added startup self-check hook via systemd drop-in:
+  - `/etc/systemd/system/shadowteams.service.d/override.conf`
+  - runs `/var/www/shadowteams/deploy/startup-selfcheck-shadowteams.sh`
+
+If you require nginx later, set:
+
+```bash
+NGINX_REQUIRED=1
+```
+
+in cron environment or healthcheck invocation.
