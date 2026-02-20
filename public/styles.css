@@ -101,3 +101,7 @@ h1{ margin:0; font-size:28px; letter-spacing:.2px; }
 .room-badge{font-weight:700;color:#c9bcff;}
 .hint{margin-left:6px;font-size:12px;}
 #teamCodePill{font-weight:700;border-color:rgba(255,217,139,.55);background:rgba(255,194,77,.18);color:#ffe2a6;}
+
+.unread-marker{position:sticky;top:8px;z-index:5;margin:8px auto;padding:4px 10px;width:max-content;border-radius:999px;border:1px solid rgba(124,92,255,.5);background:rgba(124,92,255,.2);color:#e7edf6;font-size:12px;}
+.unread-marker.hidden{display:none;}
+.msg-actions{gap:6px;}

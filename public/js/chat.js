@@ -3,6 +3,7 @@
 
   const messagesEl = qs('#messages');
   const emptyStateEl = qs('#emptyState');
+  const unreadMarkerEl = qs('#unreadMarker');
   const inputEl = qs('#input');
   const sendBtn = qs('#sendBtn');
   const leaveBtn = qs('#leaveBtn');
@@ -67,9 +68,22 @@
   }
 
   const renderedIds = new Set();
+  let unseenCount = 0;
   function updateEmptyState() {
     if (!emptyStateEl) return;
     emptyStateEl.style.display = messagesEl.querySelector('.msg') ? 'none' : 'block';
+  }
+
+
+  function isNearBottom() {
+    const threshold = 80;
+    return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < threshold;
+  }
+
+  function setUnreadMarker(show, count = 0) {
+    if (!unreadMarkerEl) return;
+    unreadMarkerEl.classList.toggle('hidden', !show);
+    if (show) unreadMarkerEl.textContent = count > 1 ? `${count} new messages` : 'New message';
   }
 
   function addMessage({ id, username: u, content, created_at }) {
@@ -106,6 +120,19 @@
     const actions = document.createElement('div');
     actions.className = 'msg-actions';
 
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'icon-btn';
+    copyBtn.title = 'Copy message';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(String(content || ''));
+        toast(toastEl, 'Message copied');
+      } catch {
+        toast(toastEl, 'Copy failed');
+      }
+    });
+
     const reportBtn = document.createElement('button');
     reportBtn.className = 'icon-btn';
     reportBtn.title = 'Report message';
@@ -130,12 +157,22 @@
       }
     });
 
+    actions.appendChild(copyBtn);
     actions.appendChild(reportBtn);
     wrap.appendChild(bubble);
     wrap.appendChild(actions);
 
+    const shouldStick = isNearBottom();
     messagesEl.appendChild(wrap);
     updateEmptyState();
+    if (shouldStick) {
+      scrollToBottom();
+      unseenCount = 0;
+      setUnreadMarker(false);
+    } else {
+      unseenCount += 1;
+      setUnreadMarker(true, unseenCount);
+    }
   }
 
   async function loadHistory() {
@@ -149,6 +186,8 @@
       for (const m of j.messages) addMessage(m);
       updateEmptyState();
       scrollToBottom();
+      unseenCount = 0;
+      setUnreadMarker(false);
     } catch (e) {
       toast(toastEl, e.message || 'Failed to load history');
     }
@@ -257,7 +296,6 @@
 
       if (data.type === 'message') {
         addMessage(data);
-        scrollToBottom();
         return;
       }
 
@@ -312,7 +350,6 @@
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Failed to send');
     if (j.message) addMessage(j.message);
-    scrollToBottom();
   }
 
   async function sendMessage() {
@@ -366,6 +403,14 @@
     setTyping(has);
     if (typingTimer) window.clearTimeout(typingTimer);
     typingTimer = window.setTimeout(() => setTyping(false), 1500);
+  });
+
+
+  messagesEl.addEventListener('scroll', () => {
+    if (isNearBottom()) {
+      unseenCount = 0;
+      setUnreadMarker(false);
+    }
   });
 
   profanityToggleEl.addEventListener('change', () => {
