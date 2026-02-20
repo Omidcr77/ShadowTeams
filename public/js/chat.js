@@ -36,7 +36,7 @@
     if (!profanityToggleEl.checked) return text;
     let out = text;
     for (const w of localBad) {
-      const re = new RegExp(`\b${w}\b`, 'gi');
+      const re = new RegExp(`\\b${w}\\b`, 'gi');
       out = out.replace(re, '****');
     }
     return out;
@@ -47,7 +47,8 @@
     if (state === 'online') connStatusEl.textContent = 'Online';
     if (state === 'offline') connStatusEl.textContent = 'Reconnecting…';
     if (state === 'connecting') connStatusEl.textContent = 'Connecting…';
-    sendBtn.disabled = state !== 'online';
+    if (state === 'fallback') connStatusEl.textContent = 'Fallback mode';
+    sendBtn.disabled = !(state === 'online' || state === 'fallback');
   }
 
   function formatTime(iso) {
@@ -62,12 +63,16 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  const renderedIds = new Set();
   function updateEmptyState() {
     if (!emptyStateEl) return;
     emptyStateEl.style.display = messagesEl.querySelector('.msg') ? 'none' : 'block';
   }
 
   function addMessage({ id, username: u, content, created_at }) {
+    if (id && renderedIds.has(id)) return;
+    if (id) renderedIds.add(id);
+
     const wrap = document.createElement('div');
     wrap.className = 'msg';
 
@@ -136,9 +141,8 @@
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Failed to load history');
       messagesEl.innerHTML = '';
-      if (!j.messages.length) {
-        messagesEl.appendChild(emptyStateEl);
-      }
+      renderedIds.clear();
+      if (!j.messages.length) messagesEl.appendChild(emptyStateEl);
       for (const m of j.messages) addMessage(m);
       updateEmptyState();
       scrollToBottom();
@@ -151,6 +155,8 @@
   let reconnectTimer = null;
   let connectWatchdog = null;
   let reconnectAttempts = 0;
+  let fallbackPollTimer = null;
+  let fallbackEnabled = false;
   let typingTimer = null;
   let isTyping = false;
   const typingUsers = new Map();
@@ -164,12 +170,32 @@
     typingEl.textContent = others.length === 0 ? '' : (others.length === 1 ? `${others[0]} is typing…` : `${others.slice(0,2).join(', ')} are typing…`);
   }
 
+  async function pollFallback() {
+    try {
+      const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=50`, { cache: 'no-store' });
+      const j = await r.json();
+      if (!r.ok) return;
+      const before = renderedIds.size;
+      for (const m of j.messages) addMessage(m);
+      if (renderedIds.size > before) scrollToBottom();
+      onlineCountEl.textContent = '1+';
+    } catch {}
+  }
+
+  function enableFallbackMode() {
+    if (fallbackEnabled) return;
+    fallbackEnabled = true;
+    setConnection('fallback');
+    toast(toastEl, 'Realtime blocked. Switched to fallback mode.', 3000);
+    pollFallback();
+    fallbackPollTimer = window.setInterval(pollFallback, 2500);
+  }
 
   async function diagnoseConnectivity() {
     try {
       const r = await fetch('/health', { cache: 'no-store' });
       if (r.ok) {
-        toast(toastEl, 'Server reachable, but realtime channel is blocked. Try new Tor tab / Standard security.');
+        enableFallbackMode();
       } else {
         toast(toastEl, 'Server not reachable right now.');
       }
@@ -190,6 +216,7 @@
   }
 
   function connect() {
+    if (fallbackEnabled) return;
     if (reconnectTimer) window.clearTimeout(reconnectTimer);
     if (connectWatchdog) window.clearTimeout(connectWatchdog);
     setConnection('connecting');
@@ -257,6 +284,7 @@
 
     ws.addEventListener('close', () => {
       if (connectWatchdog) window.clearTimeout(connectWatchdog);
+      if (fallbackEnabled) return;
       setConnection('offline');
       reconnectAttempts += 1;
       const delay = Math.min(6000, 1200 + reconnectAttempts * 600);
@@ -265,24 +293,48 @@
     });
 
     ws.addEventListener('error', () => {
-      // close handles reconnect
+      // close handles reconnect/fallback
     });
   }
 
-  function sendMessage() {
+  async function sendMessageHttpFallback(text) {
+    const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-Id': sessionId
+      },
+      body: JSON.stringify({ username, content: text })
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Failed to send');
+    if (j.message) addMessage(j.message);
+    scrollToBottom();
+  }
+
+  async function sendMessage() {
     const text = (inputEl.value || '').trim();
     if (!text) return;
     if (text.length > 500) {
       toast(toastEl, 'Message too long (max 500)');
       return;
     }
-    if (!sendJson({ type: 'message', content: text })) {
-      toast(toastEl, 'Not connected yet. Try again in a second.');
-      return;
+
+    try {
+      if (fallbackEnabled) {
+        await sendMessageHttpFallback(text);
+      } else {
+        if (!sendJson({ type: 'message', content: text })) {
+          toast(toastEl, 'Not connected yet. Try again in a second.');
+          return;
+        }
+      }
+      inputEl.value = '';
+      updateCharCount();
+      setTyping(false);
+    } catch (e) {
+      toast(toastEl, e.message || 'Failed to send');
     }
-    inputEl.value = '';
-    updateCharCount();
-    setTyping(false);
   }
 
   function updateCharCount() {
@@ -299,6 +351,7 @@
   });
 
   function setTyping(v) {
+    if (fallbackEnabled) return;
     if (isTyping === v) return;
     isTyping = v;
     sendJson({ type: 'typing', isTyping: v });
@@ -327,6 +380,7 @@
 
   leaveBtn.addEventListener('click', () => {
     try { if (ws) ws.close(); } catch {}
+    if (fallbackPollTimer) window.clearInterval(fallbackPollTimer);
     sessionStorage.removeItem('shadowteams_teamCode');
     window.location.href = '/index.html';
   });

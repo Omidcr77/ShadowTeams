@@ -113,6 +113,32 @@ function buildApiRouter({ stmt, getOnlineCountByCode, createTeam }) {
     return res.json({ messages: rows });
   });
 
+
+
+  // POST /api/team/:code/messages {username, content} with x-session-id -> {ok, message}
+  // HTTP fallback when WebSocket is blocked by client/network policy
+  router.post('/team/:code/messages', (req, res) => {
+    const code = req.params.code;
+    if (!validateTeamCode(code)) return res.status(400).json({ error: 'Invalid team code' });
+
+    const { username, content } = req.body || {};
+    if (!validateUsername(username)) return res.status(400).json({ error: 'Invalid username' });
+    const text = String(content || '').replace(/\r/g, '').trim();
+    if (!text) return res.status(400).json({ error: 'Empty message' });
+    if (text.length > 500) return res.status(400).json({ error: 'Message too long (max 500)' });
+
+    if (!req.user_hash) return res.status(400).json({ error: 'Missing x-session-id' });
+
+    const team = stmt.teamByCode.get(code);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+
+    const createdAt = nowIso();
+    const info = stmt.messagesInsert.run(team.id, username, req.user_hash, text, createdAt);
+    const id = Number(info.lastInsertRowid);
+
+    return res.json({ ok: true, message: { id, username, content: text, created_at: createdAt } });
+  });
+
   // POST /api/report {messageId, reason} -> ok
   // privacy: no IP, reporter derived from sessionId header
   router.post('/report', (req, res) => {

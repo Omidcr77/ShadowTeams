@@ -95,3 +95,5 @@ h1{ margin:0; font-size:28px; letter-spacing:.2px; }
 .status-connecting{color:#c9bcff;border-color:rgba(201,188,255,.35);background:rgba(124,92,255,.12);}
 .empty-state{padding:18px;text-align:center;color:var(--muted);border:1px dashed rgba(154,168,187,.25);border-radius:12px;margin:8px;}
 .composer-meta{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:12px;}
+
+.status-fallback{color:#ffd98b;border-color:rgba(255,217,139,.35);background:rgba(255,194,77,.12);}
