@@ -105,3 +105,21 @@ h1{ margin:0; font-size:28px; letter-spacing:.2px; }
 .unread-marker{position:sticky;top:8px;z-index:5;margin:8px auto;padding:4px 10px;width:max-content;border-radius:999px;border:1px solid rgba(124,92,255,.5);background:rgba(124,92,255,.2);color:#e7edf6;font-size:12px;}
 .unread-marker.hidden{display:none;}
 .msg-actions{gap:6px;}
+
+/* Phase 6A advanced chat layout */
+.chat-layout{display:grid;grid-template-columns:220px 1fr;gap:12px}
+.room-panel{border:1px solid rgba(26,38,54,.7);border-radius:12px;padding:12px;background:rgba(7,10,15,.25);height:fit-content}
+.panel-title{font-weight:700;margin-bottom:8px}
+.room-code-lg{margin:8px 0;padding:8px;border:1px solid rgba(124,92,255,.35);border-radius:10px;background:rgba(124,92,255,.08)}
+.chat-panel{position:relative}
+.jump-latest{position:absolute;right:10px;bottom:94px;z-index:8;border:1px solid rgba(124,92,255,.45);background:rgba(16,23,35,.9);color:#e7edf6;padding:8px 10px;border-radius:999px;cursor:pointer}
+.jump-latest.hidden{display:none}
+.msg.grouped{margin-top:4px}
+.msg.grouped .meta{display:none}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:grid;place-items:center;z-index:50}
+.modal.hidden{display:none}
+.modal-card{width:min(520px,92vw);background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;box-shadow:var(--shadow)}
+.chips{gap:8px}
+.chip{border:1px solid var(--border);background:rgba(8,12,18,.55);color:var(--text);padding:7px 10px;border-radius:999px;cursor:pointer}
+.chip:hover,.chip.active{border-color:rgba(124,92,255,.55);background:rgba(124,92,255,.2)}
+@media(max-width:900px){.chat-layout{grid-template-columns:1fr}.room-panel{order:2}}

@@ -4,6 +4,7 @@
   const messagesEl = qs('#messages');
   const emptyStateEl = qs('#emptyState');
   const unreadMarkerEl = qs('#unreadMarker');
+  const jumpLatestBtn = qs('#jumpLatestBtn');
   const inputEl = qs('#input');
   const sendBtn = qs('#sendBtn');
   const leaveBtn = qs('#leaveBtn');
@@ -18,6 +19,13 @@
   const typingEl = qs('#typing');
   const profanityToggleEl = qs('#profanityToggle');
   const toastEl = qs('#toast');
+  const roomCodeLg = qs('#roomCodeLg');
+
+  const reportModal = qs('#reportModal');
+  const reportReasonInput = qs('#reportReasonInput');
+  const reportSubmit = qs('#reportSubmit');
+  const reportCancel = qs('#reportCancel');
+  const reportChips = document.querySelectorAll('#reportChips .chip');
 
   const sessionId = getSessionId();
   const url = new URL(window.location.href);
@@ -32,15 +40,29 @@
 
   meUserEl.textContent = username;
   teamCodePill.textContent = teamCode;
+  if (roomCodeLg) roomCodeLg.textContent = teamCode;
   const roomHintEl = qs('#roomHint');
   if (roomHintEl) roomHintEl.textContent = `Room code: ${teamCode} (must match on both screens)`;
 
-  // Room mismatch hint across sessions
   const lastRoom = localStorage.getItem('shadowteams_last_room');
-  if (lastRoom && lastRoom !== teamCode) {
-    toast(toastEl, `You switched rooms: ${lastRoom} -> ${teamCode}`);
-  }
+  if (lastRoom && lastRoom !== teamCode) toast(toastEl, `You switched rooms: ${lastRoom} -> ${teamCode}`);
   localStorage.setItem('shadowteams_last_room', teamCode);
+
+  let ws = null;
+  let reconnectTimer = null;
+  let connectWatchdog = null;
+  let reconnectAttempts = 0;
+  let fallbackPollTimer = null;
+  let fallbackEnabled = false;
+  let typingTimer = null;
+  let isTyping = false;
+  let sendCooldownUntil = 0;
+  let unseenCount = 0;
+  let pendingReportId = null;
+
+  const renderedIds = new Set();
+  const messageNodes = new Map();
+  const typingUsers = new Map();
 
   const localBad = ['fuck','shit','bitch','asshole','bastard','dick','pussy','cunt'];
   function localFilter(text) {
@@ -66,29 +88,13 @@
     return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
   }
 
-  function scrollToBottom() {
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-  }
+  function scrollToBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
 
   function setUnreadMarker(show, count = 0) {
-    if (!unreadMarkerEl) return;
     unreadMarkerEl.classList.toggle('hidden', !show);
     if (show) unreadMarkerEl.textContent = count > 1 ? `${count} new messages` : 'New message';
+    jumpLatestBtn.classList.toggle('hidden', !show);
   }
-
-  const renderedIds = new Set();
-  const messageNodes = new Map();
-  let unseenCount = 0;
-  let ws = null;
-  let reconnectTimer = null;
-  let connectWatchdog = null;
-  let reconnectAttempts = 0;
-  let fallbackPollTimer = null;
-  let fallbackEnabled = false;
-  let typingTimer = null;
-  let isTyping = false;
-  let sendCooldownUntil = 0;
-  const typingUsers = new Map();
 
   function updateOnlineText(n) {
     const num = Number(n || 0);
@@ -96,7 +102,7 @@
     const sub = document.querySelector('.chat-sub');
     if (sub) {
       const others = Math.max(0, num - 1);
-      sub.setAttribute('title', others > 0 ? `You + ${others} other(s) in this room` : 'Only you in this room');
+      sub.setAttribute('title', others > 0 ? `You + ${others} others in this room` : 'Only you in this room');
     }
   }
 
@@ -122,21 +128,58 @@
     return Number.isFinite(age) && age <= 5 * 60 * 1000 && msg.content !== '[deleted]';
   }
 
+  function openReportModal(messageId) {
+    pendingReportId = messageId;
+    reportReasonInput.value = '';
+    reportChips.forEach(c => c.classList.remove('active'));
+    reportModal.classList.remove('hidden');
+    reportReasonInput.focus();
+  }
+
+  function closeReportModal() {
+    pendingReportId = null;
+    reportModal.classList.add('hidden');
+  }
+
+  reportChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      reportChips.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      reportReasonInput.value = chip.dataset.reason || '';
+    });
+  });
+
+  reportCancel.onclick = closeReportModal;
+  reportSubmit.onclick = async () => {
+    if (!pendingReportId) return;
+    const reason = (reportReasonInput.value || '').trim();
+    if (reason.length < 2 || reason.length > 200) return toast(toastEl, 'Reason must be 2–200 chars');
+    try {
+      const r = await fetch('/api/report', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Session-Id':sessionId},
+        body: JSON.stringify({ messageId: pendingReportId, reason })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Report failed');
+      toast(toastEl, 'Reported. Thank you.');
+      closeReportModal();
+    } catch (e) {
+      toast(toastEl, e.message || 'Report failed');
+    }
+  };
+
   async function deleteMessage(id) {
-    if (!id) return;
     if (fallbackEnabled) {
       const r = await fetch(`/api/message/${id}/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Session-Id': sessionId },
-        body: '{}'
+        method:'POST', headers:{'Content-Type':'application/json','X-Session-Id':sessionId}, body:'{}'
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Delete failed');
-      const node = messageNodes.get(id);
-      applyDeletedVisual(node);
+      applyDeletedVisual(messageNodes.get(id));
       return;
     }
-    if (!sendJson({ type: 'delete_message', id })) throw new Error('Not connected');
+    if (!sendJson({ type:'delete_message', id })) throw new Error('Not connected');
   }
 
   function addMessage(msg) {
@@ -147,6 +190,18 @@
     const wrap = document.createElement('div');
     wrap.className = 'msg';
     if (id) wrap.dataset.id = String(id);
+
+    // grouping check
+    const prev = messagesEl.querySelector('.msg:last-of-type');
+    if (prev && prev.dataset.user === u) {
+      const pt = Number(prev.dataset.ts || 0);
+      const ct = new Date(created_at).getTime();
+      if (Number.isFinite(pt) && Number.isFinite(ct) && (ct - pt) < 120000) {
+        wrap.classList.add('grouped');
+      }
+    }
+    wrap.dataset.user = u;
+    wrap.dataset.ts = String(new Date(created_at).getTime());
 
     const bubble = document.createElement('div');
     bubble.className = 'bubble' + (u === username ? ' me' : '');
@@ -161,8 +216,7 @@
     body.className = 'content';
     body.textContent = localFilter(content);
 
-    bubble.appendChild(meta);
-    bubble.appendChild(body);
+    bubble.append(meta, body);
 
     const actions = document.createElement('div');
     actions.className = 'msg-actions';
@@ -170,7 +224,6 @@
     const copyBtn = document.createElement('button');
     copyBtn.className = 'icon-btn';
     copyBtn.textContent = 'Copy';
-    copyBtn.title = 'Copy message';
     copyBtn.onclick = async () => {
       try { await navigator.clipboard.writeText(String(content || '')); toast(toastEl, 'Message copied'); }
       catch { toast(toastEl, 'Copy failed'); }
@@ -179,21 +232,7 @@
     const reportBtn = document.createElement('button');
     reportBtn.className = 'icon-btn';
     reportBtn.textContent = 'Report';
-    reportBtn.title = 'Report message';
-    reportBtn.onclick = async () => {
-      const menu = ['1) Spam','2) Harassment','3) Scam/Fraud','4) Illegal content','5) Hate/abuse','6) Other'].join('\n');
-      const pick = prompt(`Report reason:\n${menu}\n\nType number or custom reason:`, '1');
-      if (!pick) return;
-      const map = {'1':'Spam','2':'Harassment','3':'Scam/Fraud','4':'Illegal content','5':'Hate/abuse','6':'Other'};
-      const reason = (map[pick.trim()] || pick).trim();
-      if (reason.length < 2 || reason.length > 200) return toast(toastEl, 'Reason must be 2–200 chars');
-      try {
-        const r = await fetch('/api/report', { method:'POST', headers:{'Content-Type':'application/json','X-Session-Id':sessionId}, body: JSON.stringify({ messageId:id, reason }) });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || 'Report failed');
-        toast(toastEl, 'Reported. Thank you.');
-      } catch (e) { toast(toastEl, e.message || 'Report failed'); }
-    };
+    reportBtn.onclick = () => openReportModal(id);
 
     actions.append(copyBtn, reportBtn);
 
@@ -201,7 +240,6 @@
       const delBtn = document.createElement('button');
       delBtn.className = 'icon-btn delete-own';
       delBtn.textContent = 'Delete';
-      delBtn.title = 'Delete your message (5 min)';
       delBtn.onclick = async () => {
         try { await deleteMessage(id); }
         catch (e) { toast(toastEl, e.message || 'Delete failed'); }
@@ -218,20 +256,22 @@
     updateEmptyState();
 
     if (stick) {
-      scrollToBottom(); unseenCount = 0; setUnreadMarker(false);
+      scrollToBottom();
+      unseenCount = 0;
+      setUnreadMarker(false);
     } else {
-      unseenCount += 1; setUnreadMarker(true, unseenCount);
+      unseenCount += 1;
+      setUnreadMarker(true, unseenCount);
     }
   }
 
   function onMessageDeleted(id) {
-    const node = messageNodes.get(Number(id));
-    applyDeletedVisual(node);
+    applyDeletedVisual(messageNodes.get(Number(id)));
   }
 
   async function loadHistory() {
     try {
-      const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=60`);
+      const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=80`);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Failed to load history');
       messagesEl.innerHTML = '';
@@ -241,20 +281,23 @@
       for (const m of j.messages) addMessage(m);
       updateEmptyState();
       scrollToBottom();
-      unseenCount = 0; setUnreadMarker(false);
-    } catch (e) { toast(toastEl, e.message || 'Failed to load history'); }
+      unseenCount = 0;
+      setUnreadMarker(false);
+    } catch (e) {
+      toast(toastEl, e.message || 'Failed to load history');
+    }
   }
 
   function updateTypingLine() {
     const now = Date.now();
-    for (const [u,t] of typingUsers.entries()) if (now - t > 2200) typingUsers.delete(u);
+    for (const [u, t] of typingUsers.entries()) if (now - t > 2200) typingUsers.delete(u);
     const others = [...typingUsers.keys()].filter(u => u !== username);
     typingEl.textContent = others.length === 0 ? '' : (others.length === 1 ? `${others[0]} is typing…` : `${others.slice(0,2).join(', ')} are typing…`);
   }
 
   async function pollFallback() {
     try {
-      const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=60`, { cache:'no-store' });
+      const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages?limit=80`, { cache:'no-store' });
       const j = await r.json();
       if (!r.ok) return;
       for (const m of j.messages) addMessage(m);
@@ -268,7 +311,7 @@
     setConnection('fallback');
     toast(toastEl, 'Realtime blocked. Switched to fallback mode.', 3000);
     pollFallback();
-    fallbackPollTimer = window.setInterval(pollFallback, 2500);
+    fallbackPollTimer = setInterval(pollFallback, 2500);
   }
 
   async function diagnoseConnectivity() {
@@ -279,9 +322,7 @@
     } catch { toast(toastEl, 'Network issue: cannot reach server.'); }
   }
 
-  function wsUrl() {
-    return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
-  }
+  function wsUrl() { return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`; }
 
   function sendJson(obj) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return false;
@@ -313,19 +354,26 @@
     ws.onmessage = (ev) => {
       const data = safeJsonParse(ev.data);
       if (!data || !data.type) return;
-      if (data.type === 'joined') { setConnection('online'); teamNameEl.textContent = data.team?.name || 'Team'; updateOnlineText(data.onlineCount ?? 0); return; }
-      if (data.type === 'presence') { updateOnlineText(data.onlineCount ?? 0); return; }
-      if (data.type === 'message') { addMessage(data); return; }
-      if (data.type === 'message_deleted') { onMessageDeleted(data.id); return; }
+      if (data.type === 'joined') {
+        setConnection('online');
+        teamNameEl.textContent = data.team?.name || 'Team';
+        updateOnlineText(data.onlineCount ?? 0);
+        return;
+      }
+      if (data.type === 'presence') return updateOnlineText(data.onlineCount ?? 0);
+      if (data.type === 'message') return addMessage(data);
+      if (data.type === 'message_deleted') return onMessageDeleted(data.id);
       if (data.type === 'typing') {
         if (!data.username) return;
         if (data.isTyping) typingUsers.set(data.username, Date.now()); else typingUsers.delete(data.username);
-        updateTypingLine();
-        return;
+        return updateTypingLine();
       }
       if (data.type === 'rate_limited') return toast(toastEl, data.error || 'Slow down a bit.');
-      if (data.type === 'team_missing') { toast(toastEl, 'Team no longer exists. Returning…', 1500); setTimeout(() => (window.location.href='/index.html'), 900); return; }
-      if (data.type === 'error') toast(toastEl, data.error || 'Error');
+      if (data.type === 'team_missing') {
+        toast(toastEl, 'Team no longer exists. Returning…', 1500);
+        return setTimeout(() => (window.location.href = '/index.html'), 900);
+      }
+      if (data.type === 'error') return toast(toastEl, data.error || 'Error');
     };
 
     ws.onclose = () => {
@@ -333,19 +381,14 @@
       if (fallbackEnabled) return;
       setConnection('offline');
       reconnectAttempts += 1;
-      const delay = Math.min(6000, 1200 + reconnectAttempts * 600);
-      reconnectTimer = setTimeout(connect, delay);
+      reconnectTimer = setTimeout(connect, Math.min(6000, 1200 + reconnectAttempts * 600));
       if (reconnectAttempts >= 2) diagnoseConnectivity();
     };
-
-    ws.onerror = () => {};
   }
 
   async function sendMessageHttpFallback(text) {
     const r = await fetch(`/api/team/${encodeURIComponent(teamCode)}/messages`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json','X-Session-Id':sessionId},
-      body: JSON.stringify({ username, content:text })
+      method:'POST', headers:{'Content-Type':'application/json','X-Session-Id':sessionId}, body: JSON.stringify({ username, content:text })
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Failed to send');
@@ -353,8 +396,7 @@
   }
 
   async function sendMessage() {
-    const now = Date.now();
-    if (now < sendCooldownUntil) return;
+    if (Date.now() < sendCooldownUntil) return;
     const text = (inputEl.value || '').trim();
     if (!text) return;
     if (text.length > 500) return toast(toastEl, 'Message too long (max 500)');
@@ -368,16 +410,13 @@
       inputEl.value = '';
       updateCharCount();
       setTyping(false);
-      // client cooldown to reduce accidental spam
       sendCooldownUntil = Date.now() + 900;
       sendBtn.disabled = true;
       setTimeout(() => { if (connStatusEl.textContent !== 'Connecting…') sendBtn.disabled = !(connStatusEl.textContent === 'Online' || connStatusEl.textContent === 'Fallback mode'); }, 900);
     } catch (e) { toast(toastEl, e.message || 'Failed to send'); }
   }
 
-  function updateCharCount() {
-    charCountEl.textContent = `${(inputEl.value || '').length}/500`;
-  }
+  function updateCharCount() { charCountEl.textContent = `${(inputEl.value || '').length}/500`; }
 
   function setTyping(v) {
     if (fallbackEnabled) return;
@@ -396,7 +435,19 @@
     typingTimer = setTimeout(() => setTyping(false), 1500);
   };
 
-  messagesEl.onscroll = () => { if (isNearBottom()) { unseenCount = 0; setUnreadMarker(false); } };
+  messagesEl.onscroll = () => {
+    if (isNearBottom()) {
+      unseenCount = 0;
+      setUnreadMarker(false);
+    }
+  };
+
+  jumpLatestBtn.onclick = () => {
+    scrollToBottom();
+    unseenCount = 0;
+    setUnreadMarker(false);
+  };
+
   profanityToggleEl.onchange = () => loadHistory();
 
   copyInviteBtn.onclick = async () => {
